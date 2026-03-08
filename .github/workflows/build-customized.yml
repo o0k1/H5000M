@@ -435,6 +435,7 @@ jobs:
           pkg_enabled["homeproxy"]="${{ steps.set-env.outputs.enable_homeproxy }}"
           pkg_enabled["adbyby-plus"]="${{ steps.set-env.outputs.enable_adbyby_plus }}"
           pkg_enabled["ssrp"]="${{ steps.set-env.outputs.enable_ssrp }}"
+          pkg_enabled["smartdns"]="${{ steps.set-env.outputs.enable_smartdns }}"
 
           for pkg in "${!pkg_enabled[@]}"; do
             if [ "${pkg_enabled[$pkg]}" = "true" ]; then
