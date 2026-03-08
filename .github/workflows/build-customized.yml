@@ -74,6 +74,11 @@ on:
         required: false
         default: true
         type: boolean
+      enable_smartdns:
+        description: '启用 SmartDNS'
+        required: false
+        default: true
+        type: boolean
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -107,6 +112,7 @@ jobs:
       enable_adbyby_plus: ${{ steps.set-env.outputs.enable_adbyby_plus }}
       enable_original_modem: ${{ steps.set-env.outputs.enable_original_modem }}
       enable_ssrp: ${{ steps.set-env.outputs.enable_ssrp }}
+      enable_smartdns: ${{ steps.set-env.outputs.enable_smartdns }}
     steps:
       - name: 设置环境变量
         id: set-env
@@ -126,6 +132,7 @@ jobs:
           echo "enable_adbyby_plus=${{ github.event.inputs.enable_adbyby_plus || 'false' }}" >> $GITHUB_OUTPUT
           echo "enable_original_modem=${{ github.event.inputs.enable_original_modem || 'false' }}" >> $GITHUB_OUTPUT
           echo "enable_ssrp=${{ github.event.inputs.enable_ssrp || 'true' }}" >> $GITHUB_OUTPUT
+          echo "enable_smartdns=${{ github.event.inputs.enable_smartdns || 'true' }}" >> $GITHUB_OUTPUT
 
       - name: 检出代码
         uses: actions/checkout@v4
@@ -468,6 +475,10 @@ jobs:
                 echo "CONFIG_PACKAGE_luci-app-ssr-plus_INCLUDE_Hysteria=y" >> .config
                 echo "CONFIG_PACKAGE_luci-app-ssr-plus_INCLUDE_Shadowsocks_Simple_Obfs=y" >> .config
                 echo "CONFIG_PACKAGE_luci-i18n-ssr-plus-zh-cn=y" >> .config
+              elif [ "$pkg" = "smartdns" ]; then
+                echo "CONFIG_PACKAGE_smartdns=y" >> .config
+                echo "CONFIG_PACKAGE_luci-app-smartdns=y" >> .config
+                echo "CONFIG_PACKAGE_luci-i18n-smartdns-zh-cn=y" >> .config
               else
                 echo "CONFIG_PACKAGE_luci-app-$pkg=y" >> .config
               fi
@@ -732,6 +743,7 @@ jobs:
           • Adbyby Plus:   ${{ needs.prepare.outputs.enable_adbyby_plus }}
           • 原版 Modem:    ${{ needs.prepare.outputs.enable_original_modem }}
           • SSRP:          ${{ needs.prepare.outputs.enable_ssrp }}
+          • SmartDNS:      ${{ needs.prepare.outputs.enable_smartdns }}
 
           📦 产物文件:
           EOF
@@ -772,6 +784,7 @@ jobs:
             - Adbyby Plus: ${{ needs.prepare.outputs.enable_adbyby_plus }}
             - 原版 Modem: ${{ needs.prepare.outputs.enable_original_modem }}
             - SSRP: ${{ needs.prepare.outputs.enable_ssrp }}
+            - SmartDNS: ${{ needs.prepare.outputs.enable_smartdns }}
 
             💾 下载产物: 见下方 Artifacts
             📋 详细信息: 见 MANIFEST.txt
