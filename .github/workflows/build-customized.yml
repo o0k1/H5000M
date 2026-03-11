@@ -208,13 +208,21 @@ jobs:
             cd ..
           fi
 
-          # 修复 Rust 构建错误问题 # https://github.com/openwrt/packages/pull/27487 https://github.com/openwrt/openwrt/pull/20742
+          # （等待上游） 部分文件修复
           cd $SOURCE_DIR
+          # 修复 Rust 构建错误问题 # https://github.com/padavanonly/immortalwrt-mt798x-6.6/pull/332
           if [ -f "$GITHUB_WORKSPACE/fix/patch-kernel.sh" ]; then
             rm -rf ./scripts/patch-kernel.sh
             cp "$GITHUB_WORKSPACE/fix/patch-kernel.sh" ./scripts/patch-kernel.sh
             chmod +x ./scripts/patch-kernel.sh
           fi
+
+          # 修复 WiFi 认证方式问题 # https://github.com/padavanonly/immortalwrt-mt798x-6.6/discussions/331
+          if [ -f "$GITHUB_WORKSPACE/fix/wireless-mtk.js" ]; then
+            rm -rf ./package/mtk/applications/luci-app-mtwifi-cfg/root/usr/share/luci-app-mtwifi-cfg/wireless-mtk.js
+            cp "$GITHUB_WORKSPACE/fix/wireless-mtk.js" ./package/mtk/applications/luci-app-mtwifi-cfg/root/usr/share/luci-app-mtwifi-cfg/wireless-mtk.js
+          fi
+          
           cd ..
 
           # 设置 feeds
