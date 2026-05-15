@@ -765,10 +765,16 @@ jobs:
           path: artifacts/
           retention-days: 30
 
+      - name: Get release tag
+        id: release_tag
+        run: |
+          release_tag="r$(date +%Y.%m.%d)"
+          echo "release_tag=$release_tag" >> $GITHUB_OUTPUT
+
       - name: 创建 GitHub Release
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: r${{ github.run_number }}
+          tag_name: ${{ steps.release_tag.outputs.release_tag }}
           name: ImmortalWrt H5000M #${{ github.run_number }}
           body: |
             🎉 **ImmortalWrt H5000M 固件已构建完成**
