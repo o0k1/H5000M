@@ -207,8 +207,6 @@ jobs:
             fi
             cd ..
           fi
-          
-          cd ..
 
           # 设置 feeds
           cd $SOURCE_DIR
