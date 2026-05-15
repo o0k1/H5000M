@@ -800,6 +800,7 @@ jobs:
       - name: 发布 GitHub Release
         uses: softprops/action-gh-release@v3
         with:
+          tag_name: ${{ steps.release_tag.outputs.release_tag }}
           draft: false
           make_latest: true
         env:
