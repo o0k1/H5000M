@@ -763,15 +763,15 @@ jobs:
           release_tag="r$(date +%Y.%m.%d)"
           echo "release_tag=$release_tag" >> $GITHUB_OUTPUT
 
-      - name: 创建 GitHub Release
-        uses: softprops/action-gh-release@v1
+      - name: 准备 GitHub Release 并上传文件
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ steps.release_tag.outputs.release_tag }}
-          name: ImmortalWrt H5000M #${{ github.run_number }}
+          name: ImmortalWrt H5000M ${{ steps.release_tag.outputs.release_tag }}
           body: |
             🎉 **ImmortalWrt H5000M 固件已构建完成**
 
-            📅 时间: ${{ github.event.repository.updated_at }}
+            📅 时间: ${{ steps.release_tag.outputs.release_tag }}
             🔗 运行 ID: ${{ github.run_id }}
 
             **⚙️ 启用的功能:**
@@ -792,5 +792,15 @@ jobs:
             💾 下载产物: 见下方 Artifacts
             📋 详细信息: 见 MANIFEST.txt
           files: artifacts/*
+          draft: true # 为了上传文件
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+
+      - name: 发布 GitHub Release
+        uses: softprops/action-gh-release@v3
+        with:
+          draft: false
+          make_latest: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
