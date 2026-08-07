@@ -72,6 +72,11 @@ on:
       enable_ssrp:
         description: '启用 SSRP'
         required: false
+        default: false
+        type: boolean
+      enable_passwall2:
+        description: '启用 Passwall2'
+        required: false
         default: true
         type: boolean
       enable_smartdns:
@@ -112,6 +117,7 @@ jobs:
       enable_adbyby_plus: ${{ steps.set-env.outputs.enable_adbyby_plus }}
       enable_original_modem: ${{ steps.set-env.outputs.enable_original_modem }}
       enable_ssrp: ${{ steps.set-env.outputs.enable_ssrp }}
+      enable_passwall2: ${{ steps.set-env.outputs.enable_passwall2 }}
       enable_smartdns: ${{ steps.set-env.outputs.enable_smartdns }}
     steps:
       - name: 设置环境变量
@@ -131,7 +137,8 @@ jobs:
           echo "enable_homeproxy=${{ github.event.inputs.enable_homeproxy || 'false' }}" >> $GITHUB_OUTPUT
           echo "enable_adbyby_plus=${{ github.event.inputs.enable_adbyby_plus || 'false' }}" >> $GITHUB_OUTPUT
           echo "enable_original_modem=${{ github.event.inputs.enable_original_modem || 'false' }}" >> $GITHUB_OUTPUT
-          echo "enable_ssrp=${{ github.event.inputs.enable_ssrp || 'true' }}" >> $GITHUB_OUTPUT
+          echo "enable_ssrp=${{ github.event.inputs.enable_ssrp || 'false' }}" >> $GITHUB_OUTPUT
+          echo "enable_passwall2=${{ github.event.inputs.enable_passwall2 || 'true' }}" >> $GITHUB_OUTPUT
           echo "enable_smartdns=${{ github.event.inputs.enable_smartdns || 'true' }}" >> $GITHUB_OUTPUT
 
       - name: 检出代码
@@ -223,6 +230,11 @@ jobs:
           if [ "${{ steps.set-env.outputs.enable_ssrp }}" != "true" ]; then
             echo "🔧 禁用 SSRP feed..."
             sed -i '/src-git helloworld/d' feeds.conf.default
+          fi
+          if [ "${{ steps.set-env.outputs.enable_passwall2 }}" != "true" ]; then
+            echo "🔧 禁用 Passwall2 feed..."
+            sed -i '/src-git passwall2/d' feeds.conf.default
+            sed -i '/src-git passwall_packages/d' feeds.conf.default
           fi
 
           # QModem feed
@@ -372,8 +384,11 @@ jobs:
 
           # SSRP 相关修复
           if [ "${{ steps.set-env.outputs.enable_ssrp }}" = "true" ]; then
-            rm -rf feeds/packages/lang/golang
-            git clone https://github.com/o0k1/openwrt-packages-lang-golang -b coolsnowwolf-master feeds/packages/lang/golang
+            sed -i 's/--set=llvm\.download-ci-llvm=true/--set=llvm.download-ci-llvm=false/' feeds/packages/lang/rust/Makefile
+          fi
+
+          # Passwall2 相关修复
+          if [ "${{ steps.set-env.outputs.enable_passwall2 }}" = "true" ]; then
             sed -i 's/--set=llvm\.download-ci-llvm=true/--set=llvm.download-ci-llvm=false/' feeds/packages/lang/rust/Makefile
           fi
 
@@ -426,6 +441,7 @@ jobs:
           pkg_enabled["homeproxy"]="${{ steps.set-env.outputs.enable_homeproxy }}"
           pkg_enabled["adbyby-plus"]="${{ steps.set-env.outputs.enable_adbyby_plus }}"
           pkg_enabled["ssrp"]="${{ steps.set-env.outputs.enable_ssrp }}"
+          pkg_enabled["passwall2"]="${{ steps.set-env.outputs.enable_passwall2 }}"
           pkg_enabled["smartdns"]="${{ steps.set-env.outputs.enable_smartdns }}"
 
           for pkg in "${!pkg_enabled[@]}"; do
@@ -467,6 +483,19 @@ jobs:
                 echo "CONFIG_PACKAGE_luci-app-ssr-plus_INCLUDE_Hysteria=y" >> .config
                 echo "CONFIG_PACKAGE_luci-app-ssr-plus_INCLUDE_Shadowsocks_Simple_Obfs=y" >> .config
                 echo "CONFIG_PACKAGE_luci-i18n-ssr-plus-zh-cn=y" >> .config
+              elif [ "$pkg" = "passwall2" ]; then
+                # Passwall2 相关配置
+                echo "CONFIG_PACKAGE_luci-app-passwall2=y" >> .config
+                echo "CONFIG_PACKAGE_luci-app-passwall2_Basic_Core_All=y" >> .config
+                echo "CONFIG_PACKAGE_luci-app-passwall2_Nftables_Transparent_Proxy=y" >> .config
+                echo "CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_Haproxy=y" >> .config
+                echo "CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_Hysteria=y" >> .config
+                echo "CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_NaiveProxy=y" >> .config
+                echo "CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_Shadowsocks_Rust_Client=y" >> .config
+                echo "CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_ShadowsocksR_Libev_Client=y" >> .config
+                echo "CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_Simple_Obfs=y" >> .config
+                echo "CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_V2ray_Plugin=y" >> .config
+                echo "CONFIG_PACKAGE_luci-i18n-passwall2-zh-cn=y" >> .config
               elif [ "$pkg" = "smartdns" ]; then
                 echo "CONFIG_PACKAGE_smartdns=y" >> .config
                 echo "CONFIG_PACKAGE_luci-app-smartdns=y" >> .config
@@ -487,6 +516,8 @@ jobs:
                 disabled_pkgs+=("luci-app-$pkg" "luci-i18n-$pkg-zh-cn")
               elif [ "$pkg" = "ssrp" ]; then
                 disabled_pkgs+=("luci-app-ssr-plus" "luci-i18n-ssr-plus-zh-cn")
+              elif [ "$pkg" = "passwall2" ]; then
+                disabled_pkgs+=("luci-app-$pkg" "luci-i18n-$pkg-zh-cn")
               else
                 disabled_pkgs+=("luci-app-$pkg")
               fi
@@ -740,6 +771,7 @@ jobs:
           • Adbyby Plus:   ${{ needs.prepare.outputs.enable_adbyby_plus }}
           • 原版 Modem:    ${{ needs.prepare.outputs.enable_original_modem }}
           • SSRP:          ${{ needs.prepare.outputs.enable_ssrp }}
+          • Passwall2:     ${{ needs.prepare.outputs.enable_passwall2 }}
           • SmartDNS:      ${{ needs.prepare.outputs.enable_smartdns }}
 
           📦 产物文件:
@@ -787,6 +819,7 @@ jobs:
             - Adbyby Plus: ${{ needs.prepare.outputs.enable_adbyby_plus }}
             - 原版 Modem: ${{ needs.prepare.outputs.enable_original_modem }}
             - SSRP: ${{ needs.prepare.outputs.enable_ssrp }}
+            - Passwall2: ${{ needs.prepare.outputs.enable_passwall2 }}
             - SmartDNS: ${{ needs.prepare.outputs.enable_smartdns }}
 
             💾 下载产物: 见下方 Artifacts
