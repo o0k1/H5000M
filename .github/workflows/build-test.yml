@@ -50,11 +50,6 @@ on:
         required: false
         default: false
         type: boolean
-      enable_mwan:
-        description: '启用 MWAN (多WAN负载均衡)'
-        required: false
-        default: true
-        type: boolean
       enable_homeproxy:
         description: '启用 HomeProxy'
         required: false
@@ -70,11 +65,34 @@ on:
         required: false
         default: false
         type: boolean
+      enable_easymesh:
+        description: '启用 EasyMesh / 802.11s Mesh 支持'
+        required: false
+        default: true
+        type: boolean
       publish_release:
         description: '上传 Release（默认 true）'
         required: false
         default: true
         type: boolean
+      run_config_coverage:
+        description: '先运行覆盖性配置测试'
+        required: false
+        default: false
+        type: boolean
+      coverage_profile_set:
+        description: '覆盖性配置测试范围'
+        required: false
+        default: quick
+        type: choice
+        options:
+          - quick
+          - full
+      full_build_smoke_profile:
+        description: '额外完整编译冒烟 profile（留空则不跑）'
+        required: false
+        default: ''
+        type: string
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -90,10 +108,96 @@ env:
   SOURCE_DIR: immortalwrt
   TZ: Asia/Shanghai
   GOPROXY: https://goproxy.cn,https://proxy.golang.org,direct
+  GOSUMDB: sum.golang.google.cn
+  DOWNLOAD_MIRROR: "https://mirrors.tuna.tsinghua.edu.cn/openwrt/sources;https://mirrors.ustc.edu.cn/openwrt/sources;https://mirrors.bfsu.edu.cn/openwrt/sources"
+  GITHUB_PROXY_PREFIXES: "https://ghfast.top/ https://gh-proxy.com/ https://gh.llkk.cc/"
 
 jobs:
+  # ─── 覆盖性配置测试（与固件编译并行，不阻塞最终 Release）─────────────────
+  config-coverage:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    if: github.event.inputs.run_config_coverage == true
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: 解析功能开关
+        id: features
+        shell: bash
+        run: |
+          set -euo pipefail
+          declare -A scheduled_defaults=(
+            [enable_adguardhome]=false [enable_openclash]=false [enable_nikki]=true
+            [enable_upnp]=true [enable_vlmcsd]=true [enable_mosdns]=true [enable_dockerman]=false
+            [enable_qmodem_next]=true [enable_qmodem]=false [enable_homeproxy]=false
+            [enable_adbyby_plus]=false [enable_original_modem]=false [enable_easymesh]=true
+            [publish_release]=true [run_config_coverage]=false [coverage_profile_set]=quick
+            [full_build_smoke_profile]=''
+          )
+          declare -A manual=(
+            [enable_adguardhome]='${{ github.event.inputs.enable_adguardhome }}'
+            [enable_openclash]='${{ github.event.inputs.enable_openclash }}'
+            [enable_nikki]='${{ github.event.inputs.enable_nikki }}'
+            [enable_upnp]='${{ github.event.inputs.enable_upnp }}'
+            [enable_vlmcsd]='${{ github.event.inputs.enable_vlmcsd }}'
+            [enable_mosdns]='${{ github.event.inputs.enable_mosdns }}'
+            [enable_dockerman]='${{ github.event.inputs.enable_dockerman }}'
+            [enable_qmodem_next]='${{ github.event.inputs.enable_qmodem_next }}'
+            [enable_qmodem]='${{ github.event.inputs.enable_qmodem }}'
+            [enable_homeproxy]='${{ github.event.inputs.enable_homeproxy }}'
+            [enable_adbyby_plus]='${{ github.event.inputs.enable_adbyby_plus }}'
+            [enable_original_modem]='${{ github.event.inputs.enable_original_modem }}'
+            [enable_easymesh]='${{ github.event.inputs.enable_easymesh }}'
+            [publish_release]='${{ github.event.inputs.publish_release }}'
+            [run_config_coverage]='${{ github.event.inputs.run_config_coverage }}'
+            [coverage_profile_set]='${{ github.event.inputs.coverage_profile_set }}'
+            [full_build_smoke_profile]='${{ github.event.inputs.full_build_smoke_profile }}'
+          )
+          for k in "${!scheduled_defaults[@]}"; do
+            v="${scheduled_defaults[$k]}"
+            if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${manual[$k]:-}" ]; then
+              v="${manual[$k]}"
+            fi
+            echo "$k=$v" >> "$GITHUB_OUTPUT"
+          done
+
+      - name: 安装编译依赖
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            build-essential git ccache python3 libncurses5-dev libssl-dev libgmp3-dev \
+            libmbedtls-dev zlib1g-dev autoconf automake libtool patch make gcc g++ gawk \
+            gettext unzip file wget curl rsync zstd golang-go rustc cargo 2>&1 | tail -3
+
+      - name: 恢复构建缓存（加速重复检查）
+        uses: actions/cache@v4
+        with:
+          path: |
+            immortalwrt-coverage/dl
+            immortalwrt-coverage/staging_dir/host
+            immortalwrt-coverage/build_dir/host
+          key: ${{ runner.os }}-coverage-${{ env.REPO_BRANCH }}-${{ hashFiles('feeds.conf.default', 'h5000m.extra.config', 'patches/**', 'scripts/local-build.sh') }}
+          restore-keys: |
+            ${{ runner.os }}-coverage-${{ env.REPO_BRANCH }}-
+
+      - name: 覆盖性配置测试
+        env:
+          PROFILE_SET: ${{ steps.features.outputs.coverage_profile_set || 'quick' }}
+          FULL_BUILD_PROFILE: ${{ steps.features.outputs.full_build_smoke_profile || '' }}
+        run: |
+          set -euo pipefail
+          export PATH="/usr/lib/ccache:$PATH"
+          export THREADS="$(nproc)"
+          bash scripts/coverage-test.sh "$PROFILE_SET"
+
+  # ─── 固件编译（与 coverage 并行）──────────────────────────────────────
   build:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     timeout-minutes: 600
     steps:
       - name: 检出代码
@@ -106,26 +210,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-
-          # workflow_dispatch 时使用用户输入；schedule/其他事件用此处定义的默认值。
-          declare -A scheduled_defaults=(
-            [enable_adguardhome]=false
-            [enable_openclash]=false
-            [enable_nikki]=true
-            [enable_upnp]=true
-            [enable_vlmcsd]=true
-            [enable_mosdns]=true
-            [enable_dockerman]=false
-            [enable_qmodem_next]=true
-            [enable_qmodem]=false
-            [enable_mwan]=true
-            [enable_homeproxy]=false
-            [enable_adbyby_plus]=false
-            [enable_original_modem]=false
+          declare -A defaults=(
+            [enable_adguardhome]=false [enable_openclash]=false [enable_nikki]=true
+            [enable_upnp]=true [enable_vlmcsd]=true [enable_mosdns]=true [enable_dockerman]=false
+            [enable_qmodem_next]=true [enable_qmodem]=false [enable_homeproxy]=false
+            [enable_adbyby_plus]=false [enable_original_modem]=false [enable_easymesh]=true
             [publish_release]=true
           )
-
-          declare -A manual=(
+          declare -A inputs=(
             [enable_adguardhome]='${{ github.event.inputs.enable_adguardhome }}'
             [enable_openclash]='${{ github.event.inputs.enable_openclash }}'
             [enable_nikki]='${{ github.event.inputs.enable_nikki }}'
@@ -135,20 +227,18 @@ jobs:
             [enable_dockerman]='${{ github.event.inputs.enable_dockerman }}'
             [enable_qmodem_next]='${{ github.event.inputs.enable_qmodem_next }}'
             [enable_qmodem]='${{ github.event.inputs.enable_qmodem }}'
-            [enable_mwan]='${{ github.event.inputs.enable_mwan }}'
             [enable_homeproxy]='${{ github.event.inputs.enable_homeproxy }}'
             [enable_adbyby_plus]='${{ github.event.inputs.enable_adbyby_plus }}'
             [enable_original_modem]='${{ github.event.inputs.enable_original_modem }}'
+            [enable_easymesh]='${{ github.event.inputs.enable_easymesh }}'
             [publish_release]='${{ github.event.inputs.publish_release }}'
           )
-
-          for k in "${!scheduled_defaults[@]}"; do
-            v="${scheduled_defaults[$k]}"
-            if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${manual[$k]:-}" ]; then
-              v="${manual[$k]}"
+          for k in "${!defaults[@]}"; do
+            v="${defaults[$k]}"
+            if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${inputs[$k]:-}" ]; then
+              v="${inputs[$k]}"
             fi
             echo "$k=$v" >> "$GITHUB_OUTPUT"
-            echo "$k=$v"
           done
 
       - name: 释放磁盘空间
@@ -156,15 +246,13 @@ jobs:
         run: |
           set -euo pipefail
           echo "🧹 释放磁盘空间..."
-          docker rmi $(docker images -q) 2>/dev/null || true
-          docker system prune -af 2>/dev/null || true
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /etc/mysql /etc/php \
             /usr/local/share/boost /usr/share/swift /opt/hostedtoolcache /usr/local/.ghcup \
             /usr/local/graalvm /imagegeneration /usr/local/share \
             /var/cache/apt/archives/* 2>/dev/null || true
-          sudo apt-get -y purge azure-cli* docker* ghc* zulu* hhvm* llvm* firefox* \
+          sudo apt-get -y purge azure-cli* ghc* zulu* hhvm* llvm* firefox* \
             google* dotnet* aspnetcore* powershell* openjdk* adoptopenjdk* mysql* php* \
-            mongodb* moby* snap* 2>/dev/null || true
+            mongodb* snap* 2>/dev/null || true
           sudo apt-get -y autoremove --purge
           sudo apt-get -y clean
           df -h /
@@ -185,11 +273,9 @@ jobs:
             nano ninja-build p7zip p7zip-full patch pkgconf python3 python3-pip python3-ply \
             python3-pyelftools python3-setuptools qemu-utils re2c rsync scons squashfs-tools \
             subversion swig texinfo uglifyjs unzip upx-ucl vim wget xmlto xxd zlib1g-dev \
-            rustc cargo golang-go zstd file
-          export PATH="/usr/lib/ccache:$PATH"
-          ccache --version || true
+            rustc cargo golang-go zstd file 2>&1 | tail -3
 
-      - name: 设置 ccache
+      - name: 设置 ccache（编译加速）
         uses: hendrikmuhs/ccache-action@v1.2
         with:
           key: immortalwrt-h5000m-${{ env.REPO_BRANCH }}
@@ -202,9 +288,7 @@ jobs:
           path: |
             ${{ env.SOURCE_DIR }}/dl
             ${{ env.SOURCE_DIR }}/staging_dir/host
-            ${{ env.SOURCE_DIR }}/staging_dir/toolchain-*
             ${{ env.SOURCE_DIR }}/build_dir/host
-            ${{ env.SOURCE_DIR }}/build_dir/toolchain-*
           key: ${{ runner.os }}-build-${{ env.REPO_BRANCH }}-${{ hashFiles('feeds.conf.default', 'h5000m.extra.config', 'patches/**', 'scripts/local-build.sh') }}
           restore-keys: |
             ${{ runner.os }}-build-${{ env.REPO_BRANCH }}-
@@ -221,10 +305,10 @@ jobs:
           ENABLE_DOCKERMAN: ${{ steps.features.outputs.enable_dockerman }}
           ENABLE_QMODEM_NEXT: ${{ steps.features.outputs.enable_qmodem_next }}
           ENABLE_QMODEM: ${{ steps.features.outputs.enable_qmodem }}
-          ENABLE_MWAN: ${{ steps.features.outputs.enable_mwan }}
           ENABLE_HOMEPROXY: ${{ steps.features.outputs.enable_homeproxy }}
           ENABLE_ADBYBY_PLUS: ${{ steps.features.outputs.enable_adbyby_plus }}
           ENABLE_ORIGINAL_MODEM: ${{ steps.features.outputs.enable_original_modem }}
+          ENABLE_EASYMESH: ${{ steps.features.outputs.enable_easymesh }}
         run: |
           set -euo pipefail
           export PATH="/usr/lib/ccache:$PATH"
@@ -255,8 +339,8 @@ jobs:
         if: steps.features.outputs.publish_release == 'true'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ github.run_number }}
-          name: ImmortalWrt H5000M #${{ github.run_number }}
+          tag_name: latest
+          name: ImmortalWrt H5000M Latest
           body: |
             🎉 **ImmortalWrt H5000M 固件已构建完成**
 
@@ -274,11 +358,13 @@ jobs:
             - DockerMan:   ${{ steps.features.outputs.enable_dockerman }}
             - QModem Next: ${{ steps.features.outputs.enable_qmodem_next }}
             - QModem:      ${{ steps.features.outputs.enable_qmodem }}
-            - MWAN:        ${{ steps.features.outputs.enable_mwan }}
             - HomeProxy:   ${{ steps.features.outputs.enable_homeproxy }}
             - Adbyby Plus: ${{ steps.features.outputs.enable_adbyby_plus }}
             - 原版 Modem:  ${{ steps.features.outputs.enable_original_modem }}
-          prerelease: true
+            - EasyMesh:    ${{ steps.features.outputs.enable_easymesh }}
+          prerelease: false
+          make_latest: true
+          overwrite_files: true
           files: artifacts/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

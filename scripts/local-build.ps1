@@ -16,7 +16,7 @@ param(
 #
 # 通过 -UseMountedWorkspace 可直接在 /mnt/<drive>/... 上构建 (不推荐，速度慢)。
 #
-# 所有 ENABLE_* / THREADS / GOPROXY / REPO_* / CONFIG_URL 等环境变量会自动从
+# 所有 ENABLE_* / THREADS / GOPROXY / GOSUMDB / DOWNLOAD_MIRROR / REPO_* / CONFIG_URL 等环境变量会自动从
 # 当前 PowerShell 会话转发给 WSL bash，例如：
 #   $env:ENABLE_MOSDNS = 'false'
 #   .\scripts\local-build.ps1
@@ -28,6 +28,25 @@ $wsl = Get-Command wsl.exe -ErrorAction SilentlyContinue
 if (-not $wsl) {
     throw 'wsl.exe was not found. Install WSL2 with Ubuntu, or run scripts/local-build.sh on a Linux host.'
 }
+
+function Set-DefaultEnv {
+    param([Parameter(Mandatory = $true)][string]$Name, [Parameter(Mandatory = $true)][string]$Value)
+    if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($Name, 'Process'))) {
+        [Environment]::SetEnvironmentVariable($Name, $Value, 'Process')
+    }
+}
+
+# Set defaults for build environment variables
+if ($Threads -le 0) {
+    $Threads = [Math]::Max(2, [Environment]::ProcessorCount)
+}
+Set-DefaultEnv 'THREADS' $Threads.ToString()
+Set-DefaultEnv 'FORCE' '1'
+Set-DefaultEnv 'MAKEFLAGS' "-j$Threads"
+Set-DefaultEnv 'GOPROXY' 'https://goproxy.cn,https://proxy.golang.org,direct'
+Set-DefaultEnv 'GOSUMDB' 'sum.golang.google.cn'
+Set-DefaultEnv 'DOWNLOAD_MIRROR' 'https://mirrors.tuna.tsinghua.edu.cn/openwrt/sources;https://mirrors.ustc.edu.cn/openwrt/sources;https://mirrors.bfsu.edu.cn/openwrt/sources'
+Set-DefaultEnv 'GITHUB_PROXY_PREFIXES' 'https://ghfast.top/ https://gh-proxy.com/ https://gh.llkk.cc/'
 
 function ConvertTo-WslPath {
     param([Parameter(Mandatory = $true)][string]$Path)
@@ -62,9 +81,12 @@ if ($SkipFeedsUpdate) { $scriptArgs += '--skip-feeds-update' }
 
 $forwardedNames = @(
     'ENABLE_ADGUARDHOME','ENABLE_OPENCLASH','ENABLE_NIKKI','ENABLE_UPNP','ENABLE_VLMCSD',
-    'ENABLE_MOSDNS','ENABLE_DOCKERMAN','ENABLE_QMODEM_NEXT','ENABLE_QMODEM','ENABLE_MWAN',
-    'ENABLE_HOMEPROXY','ENABLE_ADBYBY_PLUS','ENABLE_ORIGINAL_MODEM',
-    'THREADS','GOPROXY','REPO_URL','REPO_BRANCH','CONFIG_URL','SOURCE_DIR','ARTIFACTS_DIR'
+    'ENABLE_MOSDNS','ENABLE_DOCKERMAN','ENABLE_QMODEM_NEXT','ENABLE_QMODEM',
+    'ENABLE_HOMEPROXY','ENABLE_ADBYBY_PLUS','ENABLE_ORIGINAL_MODEM','ENABLE_EASYMESH',
+    'THREADS','FORCE','MAKEFLAGS','CCACHE_DIR','CCACHE_SIZE',
+    'GOPROXY','GOSUMDB','DOWNLOAD_MIRROR','GITHUB_PROXY_PREFIXES',
+    'HOMEPROXY_REPO_URL','HOMEPROXY_REPO_BRANCH','HOMEPROXY_FALLBACK_REPO_URL','HOMEPROXY_FALLBACK_REPO_BRANCH',
+    'REPO_URL','REPO_BRANCH','CONFIG_URL','SOURCE_DIR','ARTIFACTS_DIR'
 )
 $exportLines = @()
 foreach ($name in $forwardedNames) {
@@ -82,10 +104,16 @@ if ($UseMountedWorkspace) {
     Write-Host "Running local build in mounted WSL path: $linuxRoot"
 } else {
     $effectiveWslWorkDir = $WslWorkDir
+    # Expand ~ to WSL home for paths starting with ~/
     if ($effectiveWslWorkDir.StartsWith('~/')) {
         $wslHome = (& $wsl.Source @wslArgs bash -lc 'printf %s "$HOME"').Trim()
-        if (-not $wslHome) { throw 'Failed to resolve WSL home directory.' }
-        $effectiveWslWorkDir = $wslHome.TrimEnd('/') + '/' + $effectiveWslWorkDir.Substring(2)
+        if ($wslHome) {
+            $effectiveWslWorkDir = $wslHome.TrimEnd('/') + '/' + $effectiveWslWorkDir.Substring(2)
+        }
+    }
+    # Sanitize: reject empty or absolute Windows paths
+    if ([string]::IsNullOrWhiteSpace($effectiveWslWorkDir) -or $effectiveWslWorkDir -match '^[A-Za-z]:') {
+        throw "WslWorkDir must be a relative Linux path (e.g. ~/build or ./build): received '$effectiveWslWorkDir'"
     }
     $wrapperLines = @('set -e') + $exportLines + @(
         ('src={0}' -f (ConvertTo-BashQuoted $linuxRoot)),
@@ -124,7 +152,7 @@ $wrapperPath = Join-Path ([System.IO.Path]::GetTempPath()) ("auto-h5000m-local-b
 [System.IO.File]::WriteAllText($wrapperPath, $wrapperContent, [System.Text.UTF8Encoding]::new($false))
 $linuxWrapperPath = ConvertTo-WslPath -Path $wrapperPath
 try {
-    & $wsl.Source @wslArgs bash $linuxWrapperPath @scriptArgs
+    & $wsl.Source @wslArgs -u root bash $linuxWrapperPath @scriptArgs
     exit $LASTEXITCODE
 }
 finally {
