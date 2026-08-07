@@ -142,7 +142,7 @@ jobs:
           echo "enable_smartdns=${{ github.event.inputs.enable_smartdns || 'true' }}" >> $GITHUB_OUTPUT
 
       - name: 检出代码
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 1
 
@@ -175,7 +175,7 @@ jobs:
           ccache --version || true
 
       - name: 恢复构建缓存
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ${{ env.SOURCE_DIR }}/dl
@@ -605,7 +605,7 @@ jobs:
           tar --exclude="$SOURCE_DIR/build_dir" --exclude="$SOURCE_DIR/tmp" -czf source.tar.gz $SOURCE_DIR $GITHUB_WORKSPACE/h5000m.extra.config $GITHUB_WORKSPACE/feeds.conf.default 2>/dev/null || true
 
       - name: 上传源码
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: source-${{ github.run_number }}
           path: source.tar.gz
@@ -616,7 +616,7 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - name: 下载源码
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: source-${{ github.run_number }}
 
@@ -717,7 +717,7 @@ jobs:
           fi
 
       - name: 上传产物
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: artifacts-${{ github.run_number }}
           path: artifacts.tar.gz
@@ -729,7 +729,7 @@ jobs:
     if: success()
     steps:
       - name: 下载产物
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: artifacts-${{ github.run_number }}
 
@@ -783,7 +783,7 @@ jobs:
           echo "✅ 产物收集完成"
 
       - name: 上传构建结果
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ImmortalWrt-H5000M-${{ github.run_number }}
           path: artifacts/
