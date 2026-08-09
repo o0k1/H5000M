@@ -5,6 +5,19 @@ on:
     - cron: '0 16 * * 0'  # 每周一北京时间 00:00
   workflow_dispatch:
     inputs:
+      runner_type:
+        description: '运行器类型（github-hosted 默认；free 账户被锁时选 self-hosted 跑自己的机器）'
+        required: false
+        default: github-hosted
+        type: choice
+        options:
+          - github-hosted
+          - self-hosted
+      self_hosted_labels:
+        description: '自托管 runner 标签（逗号分隔；仅 runner_type=self-hosted 时生效，默认 linux,x64,h5000m）'
+        required: false
+        default: 'linux,x64,h5000m'
+        type: string
       enable_adguardhome:
         description: '启用 AdGuardHome'
         required: false
@@ -70,6 +83,11 @@ on:
         required: false
         default: true
         type: boolean
+      enable_mwan3:
+        description: '启用 MWAN3 MultiWAN Manager（多WAN负载均衡/故障切换）'
+        required: false
+        default: false
+        type: boolean
       publish_release:
         description: '上传 Release（默认 true）'
         required: false
@@ -115,7 +133,8 @@ env:
 jobs:
   # ─── 覆盖性配置测试（与固件编译并行，不阻塞最终 Release）─────────────────
   config-coverage:
-    runs-on: ubuntu-24.04
+    # runs-on 不允许引用顶层 env，直接在这里内联 fromJSON 表达式
+    runs-on: ${{ fromJSON(format('["{0}"]', github.event.inputs.runner_type == 'self-hosted' && github.event.inputs.self_hosted_labels || 'ubuntu-24.04')) }}
     timeout-minutes: 60
     if: github.event.inputs.run_config_coverage == true
     steps:
@@ -134,6 +153,7 @@ jobs:
             [enable_upnp]=true [enable_vlmcsd]=true [enable_mosdns]=true [enable_dockerman]=false
             [enable_qmodem_next]=true [enable_qmodem]=false [enable_homeproxy]=false
             [enable_adbyby_plus]=false [enable_original_modem]=false [enable_easymesh]=true
+            [enable_mwan3]=false
             [publish_release]=true [run_config_coverage]=false [coverage_profile_set]=quick
             [full_build_smoke_profile]=''
           )
@@ -151,6 +171,7 @@ jobs:
             [enable_adbyby_plus]='${{ github.event.inputs.enable_adbyby_plus }}'
             [enable_original_modem]='${{ github.event.inputs.enable_original_modem }}'
             [enable_easymesh]='${{ github.event.inputs.enable_easymesh }}'
+            [enable_mwan3]='${{ github.event.inputs.enable_mwan3 }}'
             [publish_release]='${{ github.event.inputs.publish_release }}'
             [run_config_coverage]='${{ github.event.inputs.run_config_coverage }}'
             [coverage_profile_set]='${{ github.event.inputs.coverage_profile_set }}'
@@ -164,7 +185,8 @@ jobs:
             echo "$k=$v" >> "$GITHUB_OUTPUT"
           done
 
-      - name: 安装编译依赖
+      - name: 安装编译依赖（仅 github-hosted 跑；自托管需预装依赖）
+        if: github.event.inputs.runner_type != 'self-hosted'
         shell: bash
         run: |
           set -euo pipefail
@@ -197,7 +219,8 @@ jobs:
 
   # ─── 固件编译（与 coverage 并行）──────────────────────────────────────
   build:
-    runs-on: ubuntu-24.04
+    # runs-on 不允许引用顶层 env，直接在这里内联 fromJSON 表达式
+    runs-on: ${{ fromJSON(format('["{0}"]', github.event.inputs.runner_type == 'self-hosted' && github.event.inputs.self_hosted_labels || 'ubuntu-24.04')) }}
     timeout-minutes: 600
     steps:
       - name: 检出代码
@@ -215,6 +238,7 @@ jobs:
             [enable_upnp]=true [enable_vlmcsd]=true [enable_mosdns]=true [enable_dockerman]=false
             [enable_qmodem_next]=true [enable_qmodem]=false [enable_homeproxy]=false
             [enable_adbyby_plus]=false [enable_original_modem]=false [enable_easymesh]=true
+            [enable_mwan3]=false
             [publish_release]=true
           )
           declare -A inputs=(
@@ -231,6 +255,7 @@ jobs:
             [enable_adbyby_plus]='${{ github.event.inputs.enable_adbyby_plus }}'
             [enable_original_modem]='${{ github.event.inputs.enable_original_modem }}'
             [enable_easymesh]='${{ github.event.inputs.enable_easymesh }}'
+            [enable_mwan3]='${{ github.event.inputs.enable_mwan3 }}'
             [publish_release]='${{ github.event.inputs.publish_release }}'
           )
           for k in "${!defaults[@]}"; do
@@ -241,7 +266,8 @@ jobs:
             echo "$k=$v" >> "$GITHUB_OUTPUT"
           done
 
-      - name: 释放磁盘空间
+      - name: 释放磁盘空间（仅 github-hosted 跑）
+        if: github.event.inputs.runner_type != 'self-hosted'
         shell: bash
         run: |
           set -euo pipefail
@@ -257,7 +283,8 @@ jobs:
           sudo apt-get -y clean
           df -h /
 
-      - name: 安装编译依赖
+      - name: 安装编译依赖（仅 github-hosted 跑；自托管需预装依赖）
+        if: github.event.inputs.runner_type != 'self-hosted'
         shell: bash
         run: |
           set -euo pipefail
@@ -309,6 +336,7 @@ jobs:
           ENABLE_ADBYBY_PLUS: ${{ steps.features.outputs.enable_adbyby_plus }}
           ENABLE_ORIGINAL_MODEM: ${{ steps.features.outputs.enable_original_modem }}
           ENABLE_EASYMESH: ${{ steps.features.outputs.enable_easymesh }}
+          ENABLE_MWAN3: ${{ steps.features.outputs.enable_mwan3 }}
         run: |
           set -euo pipefail
           export PATH="/usr/lib/ccache:$PATH"
@@ -362,6 +390,7 @@ jobs:
             - Adbyby Plus: ${{ steps.features.outputs.enable_adbyby_plus }}
             - 原版 Modem:  ${{ steps.features.outputs.enable_original_modem }}
             - EasyMesh:    ${{ steps.features.outputs.enable_easymesh }}
+            - MWAN3:       ${{ steps.features.outputs.enable_mwan3 }}
           prerelease: false
           make_latest: true
           overwrite_files: true

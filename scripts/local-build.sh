@@ -30,7 +30,8 @@ HOMEPROXY_REPO_BRANCH="${HOMEPROXY_REPO_BRANCH:-master}"
 HOMEPROXY_FALLBACK_REPO_URL="${HOMEPROXY_FALLBACK_REPO_URL:-https://github.com/VIKINGYFY/homeproxy}"
 HOMEPROXY_FALLBACK_REPO_BRANCH="${HOMEPROXY_FALLBACK_REPO_BRANCH:-main}"
 ADBYBY_PLUS_I18N_IPK_URL="${ADBYBY_PLUS_I18N_IPK_URL:-https://github.com/kongfl888/luci-app-adbyby-plus-lite/releases/download/2.0K5/luci-i18n-adbyby-plus-zh-cn_221024.22052_all.ipk}"
-ADGUARDHOME_I18N_IPK_URL="${ADGUARDHOME_I18N_IPK_URL:-https://github.com/kongfl888/luci-app-adguardhome/releases/download/v1.8-20221120/luci-i18n-adguardhome-zh-cn_git-22.323.68542-450e04a_all.ipk}"
+ADGUARDHOME_IPK_URL="${ADGUARDHOME_IPK_URL:-https://github.com/sirpdboy/luci-app-adguardhome/releases/download/v1.1.1/luci-app-adguardhome_1.1.1-r1_all.ipk}"
+ADGUARDHOME_I18N_IPK_URL="${ADGUARDHOME_I18N_IPK_URL:-https://github.com/sirpdboy/luci-app-adguardhome/releases/download/v1.1.1/luci-i18n-adguardhome-zh-cn_0_all.ipk}"
 
 ENABLE_ADGUARDHOME="${ENABLE_ADGUARDHOME:-false}"
 ENABLE_OPENCLASH="${ENABLE_OPENCLASH:-false}"
@@ -45,6 +46,7 @@ ENABLE_HOMEPROXY="${ENABLE_HOMEPROXY:-false}"
 ENABLE_ADBYBY_PLUS="${ENABLE_ADBYBY_PLUS:-false}"
 ENABLE_ORIGINAL_MODEM="${ENABLE_ORIGINAL_MODEM:-false}"
 ENABLE_EASYMESH="${ENABLE_EASYMESH:-true}"
+ENABLE_MWAN3="${ENABLE_MWAN3:-false}"
 
 INSTALL_DEPS=false
 PREPARE_ONLY=false
@@ -340,6 +342,7 @@ HomeProxy=${ENABLE_HOMEPROXY}
 Adbyby Plus=${ENABLE_ADBYBY_PLUS}
 Original Modem=${ENABLE_ORIGINAL_MODEM}
 EasyMesh=${ENABLE_EASYMESH}
+MWAN3=${ENABLE_MWAN3}
 GOPROXY=${GOPROXY}
 GOSUMDB=${GOSUMDB}
 DOWNLOAD_MIRROR=${DOWNLOAD_MIRROR}
@@ -660,6 +663,35 @@ patch_mtwifi_apcli_bssid_budget() {
   fi
 }
 
+# mt_wifi7's sta_mgmt_assoc.c guards the easy-mesh / wpa_supplicant block as
+#   #if defined(CONFIG_MAP_SUPPORT) && defined(MTK_HOSTAPD_SUPPORT)
+# but reads pStaCfg->wpa_supplicant_info.WpaSupplicantUP inside, which only
+# exists in struct _STA_ADMIN_CONFIG when
+#   #ifdef RT_CFG80211_SUPPORT
+#   #if defined(CONFIG_STA_SUPPORT) || defined(APCLI_CFG80211_SUPPORT)
+# is satisfied (rtmp.h). When the project turns MTK_WIFI7_MAP_HOSTAPD_SUPPORT
+# on (EasyMesh full feature set) but leaves MT_STA_SUPPORT / APCLI_SUPPLICANT
+# disabled (default AP-only profile), MTK_HOSTAPD_SUPPORT is defined while
+# APCLI_CFG80211_SUPPORT is not - the struct member is absent and the build
+# fails with:
+#   error: 'struct _STA_ADMIN_CONFIG' has no member named 'wpa_supplicant_info'
+# Tighten the existing guard so the body only compiles when the struct
+# member is actually present. This is a no-op for the upstream target
+# (which always enables MT_STA_SUPPORT/APCLI_CFG80211_SUPPORT) and lets us
+# keep the full EasyMesh feature set on AP-only builds.
+patch_mtwifi7_sta_mgmt_assoc_hostapd_guard() {
+  local f="package/mtk/drivers/mt_wifi7/src/mt_wifi/common/fsm/sta_mgmt_assoc.c"
+  [ -f "$f" ] || return 0
+
+  if grep -q '#if defined(CONFIG_MAP_SUPPORT) && defined(MTK_HOSTAPD_SUPPORT) && defined(APCLI_CFG80211_SUPPORT)' "$f"; then
+    log "mt_wifi7 sta_mgmt_assoc.c APCLI_CFG80211 hostapd guard already applied"
+    return 0
+  fi
+
+  log "Tightening mt_wifi7 sta_mgmt_assoc.c MTK_HOSTAPD guard with APCLI_CFG80211_SUPPORT"
+  sed -i 's|#if defined(CONFIG_MAP_SUPPORT) && defined(MTK_HOSTAPD_SUPPORT)|#if defined(CONFIG_MAP_SUPPORT) \&\& defined(MTK_HOSTAPD_SUPPORT) \&\& defined(APCLI_CFG80211_SUPPORT)|g' "$f"
+}
+
 patch_mtk_wifi_utility_rbus_for_h5000m() {
   local rbus_patch="target/linux/mediatek/patches-6.6/0101-add-mtk-wifi-utility-rbus.patch"
   [ -f "$rbus_patch" ] || return 0
@@ -757,6 +789,81 @@ endef
 EOF
 }
 
+# Like ensure_prebuilt_luci_i18n_package but for a main LuCI app package whose
+# ipk we want to ship without compiling from source. The CATEGORY/SUBMENU
+# are LuCI/Applications instead of LuCI/Translations and the package does not
+# depend on the i18n shim - the i18n is wired up via a separate call. The
+# ipk URL is treated as an upstream tarball/zip (sirpdboy/luci-app-adguardhome
+# releases serve an extra gzip-wrapped ipk whose layout matches
+# tar/debian-binary+control.tar.gz+data.tar.gz, so the same ar-or-tar branch
+# from the i18n helper is reused). PKG_HASH is skipped because the release
+# tag is the integrity anchor; if you need checksum pinning, set
+# ADGUARDHOME_IPK_SHA256SUM in the environment.
+ensure_prebuilt_luci_app_package() {
+  local pkg_name="$1"
+  local version="$2"
+  local ipk_url="$3"
+  local title="$4"
+  local source_name="${ipk_url##*/}"
+  local pkg_dir="package/prebuilt-luci-app/$pkg_name"
+  local source_urls
+
+  source_urls="$(github_url_base_candidates "$ipk_url" "$source_name" | tr '\n' ' ')"
+  rm -rf "$pkg_dir"
+  mkdir -p "$pkg_dir"
+
+  cat > "$pkg_dir/Makefile" <<EOF
+include \$(TOPDIR)/rules.mk
+
+PKG_NAME:=$pkg_name
+PKG_VERSION:=$version
+PKG_RELEASE:=1
+PKG_SOURCE:=$source_name
+PKG_SOURCE_URL:=$source_urls
+PKG_HASH:=skip
+PKG_BUILD_DIR:=\$(BUILD_DIR)/\$(PKG_NAME)-\$(PKG_VERSION)
+
+include \$(INCLUDE_DIR)/package.mk
+
+define Package/$pkg_name
+  SECTION:=luci
+  CATEGORY:=LuCI
+  SUBMENU:=Applications
+  TITLE:=$title
+  DEPENDS:=+libc +ca-certs +curl +luci-lua-runtime
+  PKGARCH:=all
+endef
+
+define Build/Prepare
+	rm -rf \$(PKG_BUILD_DIR)
+	mkdir -p \$(PKG_BUILD_DIR)/ipk \$(PKG_BUILD_DIR)/data
+	if ar t \$(DL_DIR)/\$(PKG_SOURCE) >/dev/null 2>&1; then \
+		(cd \$(PKG_BUILD_DIR)/ipk; ar x \$(DL_DIR)/\$(PKG_SOURCE)); \
+	else \
+		tar -xf \$(DL_DIR)/\$(PKG_SOURCE) -C \$(PKG_BUILD_DIR)/ipk; \
+	fi
+	if [ -f \$(PKG_BUILD_DIR)/ipk/data.tar.gz ]; then \
+		tar -xzf \$(PKG_BUILD_DIR)/ipk/data.tar.gz -C \$(PKG_BUILD_DIR)/data; \
+	elif [ -f \$(PKG_BUILD_DIR)/ipk/data.tar.xz ]; then \
+		tar -xJf \$(PKG_BUILD_DIR)/ipk/data.tar.xz -C \$(PKG_BUILD_DIR)/data; \
+	elif [ -f \$(PKG_BUILD_DIR)/ipk/data.tar.zst ]; then \
+		tar --zstd -xf \$(PKG_BUILD_DIR)/ipk/data.tar.zst -C \$(PKG_BUILD_DIR)/data; \
+	else \
+		echo "Unsupported ipk data archive for \$(PKG_SOURCE)" >&2; exit 1; \
+	fi
+endef
+
+define Build/Compile
+endef
+
+define Package/$pkg_name/install
+	\$(CP) \$(PKG_BUILD_DIR)/data/. \$(1)/
+endef
+
+\$(eval \$(call BuildPackage,$pkg_name))
+EOF
+}
+
 ensure_external_luci_i18n_packages() {
   is_true "$ENABLE_ADBYBY_PLUS" && ensure_prebuilt_luci_i18n_package \
     luci-i18n-adbyby-plus-zh-cn \
@@ -765,12 +872,86 @@ ensure_external_luci_i18n_packages() {
     luci-app-adbyby-plus \
     "Adbyby Plus Chinese translation"
 
-  is_true "$ENABLE_ADGUARDHOME" && ensure_prebuilt_luci_i18n_package \
-    luci-i18n-adguardhome-zh-cn \
-    git-22.323.68542-450e04a \
-    "$ADGUARDHOME_I18N_IPK_URL" \
-    luci-app-adguardhome \
-    "AdGuardHome Chinese translation"
+  if is_true "$ENABLE_ADGUARDHOME"; then
+    # sirpdboy/luci-app-adguardhome v1.1.1 ships as two prebuilt ipks (main
+    # app + zh-cn translation). Both releases are gzip-wrapped tarballs
+    # (debian-binary + control.tar.gz + data.tar.gz), which the
+    # ensure_prebuilt_*_package helpers already accept via the
+    # ar-or-tar fallback in Build/Prepare.
+    ensure_prebuilt_luci_app_package \
+      luci-app-adguardhome \
+      "1.1.1-r1" \
+      "$ADGUARDHOME_IPK_URL" \
+      "LuCI support for AdGuardHome"
+    ensure_prebuilt_luci_i18n_package \
+      luci-i18n-adguardhome-zh-cn \
+      "0" \
+      "$ADGUARDHOME_I18N_IPK_URL" \
+      luci-app-adguardhome \
+      "AdGuardHome Simplified Chinese translation"
+  fi
+}
+
+patch_qmodem_depends() {
+  # FUjr/QModem 的 qmodem/Makefile 里有一段：
+  #   +PACKAGE_luci-app-qmodem_GENERIC_MHI_PCIe_DRIVER:kmod-mhi-wwan-ctrl \
+  #   +PACKAGE_luci-app-qmodem_GENERIC_MHI_PCIe_DRIVER:kmod-mhi-wwan-mbim \
+  # 这两个 dep 实际上没有任何 feed 提供（它们既不是独立的 Makefile，
+  # 也不是上游 kernel 里的 kmod 子包），OpenWrt 的 package-metadata.pl
+  # 会在 feeds install 阶段反复报：
+  #   WARNING: Makefile '...' has a dependency on 'PACKAGE_..._GENERIC_MHI_PCIe_DRIVER:', which does not exist
+  #   WARNING: Makefile '...' has a dependency on '-ctrl', which does not exist
+  #   WARNING: Makefile '...' has a dependency on '-mbim', which does not exist
+  # 即便去掉 `\` 续行也无济于事——它们的解析结果本身就是空 dep + 残留 "-ctrl/-mbim"。
+  # 这里的 sed 把这两行去掉；前面已有的 +kmod-mhi-wwan 保持原样（在 feeds install 后
+  # 已经通过 apply_package_fixes 末尾的 sed 's/+\?kmod-mhi-wwan//g' 处理）。
+  #
+  # 同时按用户要求把所有 `\` 续行合并为单行，让 Make 直接按 token 解析，
+  # 避免某些解析器对 line-continuation + 末尾特殊字符的边界歧义。
+  local qmodem_mf="package/feeds/qmodem/qmodem/Makefile"
+  [ -f "$qmodem_mf" ] || return 0
+
+  log "Patching qmodem Makefile: drop unresolved -ctrl/-mbim conditional deps and collapse \\ continuations"
+  cp -f "$qmodem_mf" "$qmodem_mf.orig"
+
+  # 1) 去掉那两个无法解析的条件依赖行（包括前面 TAB 和末尾的 ` \`）
+  sed -i '/^[[:space:]]*+PACKAGE_luci-app-qmodem_GENERIC_MHI_PCIe_DRIVER:kmod-mhi-wwan-ctrl[[:space:]]*\\$/d' "$qmodem_mf"
+  sed -i '/^[[:space:]]*+PACKAGE_luci-app-qmodem_GENERIC_MHI_PCIe_DRIVER:kmod-mhi-wwan-mbim[[:space:]]*\\$/d' "$qmodem_mf"
+
+  # 2) 把 `\` 行尾续行符去掉（让 Make 把多行值视为单行 tokens，避开某些解析路径）
+  #    只处理 DEPENDS 块；用 awk 按行扫描，进入 DEPENDS:= 起到 endef 之间做合并
+  awk '
+    /^[[:space:]]*DEPENDS:=/ { in_depends=1 }
+    in_depends && /^endef/ { in_depends=0 }
+    in_depends {
+      # 去掉行尾的续行符（` \` 或 `\`）
+      sub(/[[:space:]]*\\$/, "")
+      # 合并多行：在当前行末尾加一个空格分隔
+      if (buf != "") buf = buf " "
+      buf = buf $0
+      next
+    }
+    {
+      if (buf != "") { print buf; buf="" }
+      print
+    }
+    END { if (buf != "") print buf }
+  ' "$qmodem_mf" > "$qmodem_mf.new" && mv "$qmodem_mf.new" "$qmodem_mf"
+
+  # 简单健全性校验：DEPENDS 行应仍然包含关键 token（防 sed 把整段 DEPENDS 删没了）
+  if ! grep -q '+PACKAGE_luci-app-qmodem_GENERIC_MHI_PCIe_DRIVER:kmod-mhi-wwan ' "$qmodem_mf" \
+     && ! grep -q '+PACKAGE_luci-app-qmodem_GENERIC_MHI_PCIe_DRIVER:kmod-mhi-wwan"' "$qmodem_mf" \
+     && ! grep -q '+PACKAGE_luci-app-qmodem_GENERIC_MHI_PCIe_DRIVER:kmod-mhi-wwan$' "$qmodem_mf"; then
+    die "patch_qmodem_depends: DEPENDS rewrite lost expected token (kmod-mhi-wwan). Restoring backup."
+  fi
+
+  # 校验：残留的 -ctrl/-mbim 行应已不存在
+  if grep -E 'kmod-mhi-wwan-(ctrl|mbim)' "$qmodem_mf"; then
+    die "patch_qmodem_depends: -ctrl/-mbim still present after patch; upstream Makefile changed?"
+  fi
+
+  rm -f "$qmodem_mf.orig"
+  log "qmodem Makefile patched successfully"
 }
 
 patch_homeproxy_no_wan_default_interface() {
@@ -900,7 +1081,9 @@ apply_package_fixes() {
   patch_mtk_wifi_utility_rbus_for_h5000m
   patch_mtwifi_apcli_bssid_budget
   verify_mtwifi_patch
+  patch_mtwifi7_sta_mgmt_assoc_hostapd_guard
   ensure_external_luci_i18n_packages
+  patch_qmodem_depends
 
   local ebtables_makefile="package/network/utils/ebtables/Makefile"
   if [ -f "$ebtables_makefile" ] && grep -qE 'git(://|s://git\.)netfilter\.org/ebtables' "$ebtables_makefile"; then
@@ -924,9 +1107,10 @@ apply_package_fixes() {
   fi
 
   if is_true "$ENABLE_ADGUARDHOME"; then
-    [ ! -d "package/luci-app-adguardhome" ] && git_clone_retry https://github.com/kongfl888/luci-app-adguardhome.git "" package/luci-app-adguardhome 1
-    local agh_script="package/luci-app-adguardhome/root/usr/share/AdGuardHome/links.sh"
-    [ -f "$agh_script" ] && sed -i 's|mv /usr/bin/AdGuardHome/AdGuardHome|rm -rf /usr/bin/AdGuardHome 2>/dev/null; mkdir -p /usr/bin/AdGuardHome; mv /tmp/AdGuardHomeupdate/AdGuardHome_linux_*/AdGuardHome|g' "$agh_script" || true
+    # luci-app-adguardhome is now shipped as a prebuilt ipk from
+    # sirpdboy/luci-app-adguardhome v1.1.1 (handled in
+    # ensure_external_luci_i18n_packages). Nothing else to do here.
+    :
   fi
 
   if is_true "$ENABLE_OPENCLASH"; then
@@ -999,6 +1183,43 @@ apply_package_fixes() {
   fi
 
   [ -f "package/mtk/drivers/mt_hwifi/Makefile" ] && sed -i 's/+kmod-mt_wifi_osal//g' "package/mtk/drivers/mt_hwifi/Makefile" || true
+
+  # luci-app-turboacc-mtk and luci-app-Airpifanctrl are not in the upstream
+  # feeds wired up in feeds.conf.default (immortalwrt-24.10 + openwrt routing +
+  # telephony + nikki + qmodem). Without these clones, both CONFIG_PACKAGE
+  # lines in h5000m.extra.config get silently dropped by make defconfig, so
+  # the LuCI Network Acceleration / Fan control panels are absent even
+  # though .config requests them.
+  #
+  # Both apps are pure LuCI + UCI; turboacc toggles kernel HNAT/SFE/Shortcut
+  # flags via UCI -> sysfs and exposes buttons to clear conntrack / reset
+  # the offload engine; Airpifanctrl fans out PWM via sysfs. So we can drop
+  # them under package/mtk/applications/<name>/ and they will be picked up
+  # by ./scripts/feeds install as plain package directories.
+  if [ ! -d "package/mtk/applications/luci-app-turboacc-mtk" ]; then
+    rm -rf /tmp/luci-app-turboacc-mtk
+    git_clone_retry https://github.com/hanwckf/immortalwrt-mt798x.git master /tmp/luci-app-turboacc-mtk 1 || \
+      log "WARNING: failed to clone luci-app-turboacc-mtk; LuCI network acceleration panel will be missing"
+    if [ -d "/tmp/luci-app-turboacc-mtk/package/mtk/applications/luci-app-turboacc-mtk" ]; then
+      mkdir -p package/mtk/applications
+      cp -r /tmp/luci-app-turboacc-mtk/package/mtk/applications/luci-app-turboacc-mtk \
+        package/mtk/applications/luci-app-turboacc-mtk
+    fi
+    rm -rf /tmp/luci-app-turboacc-mtk
+  fi
+  if [ ! -d "package/mtk/applications/luci-app-Airpifanctrl" ]; then
+    rm -rf /tmp/luci-app-Airpifanctrl
+    # Airpifanctrl lived in the older padavanonly/immortalwrt-mt798x-6.6
+    # branch; fetch that repo and copy the application subdir.
+    git_clone_retry https://github.com/padavanonly/immortalwrt-mt798x-6.6.git mt798x-mt799x-6.6-mtwifi /tmp/luci-app-Airpifanctrl 1 || \
+      log "WARNING: failed to clone luci-app-Airpifanctrl; LuCI fan control panel will be missing"
+    if [ -d "/tmp/luci-app-Airpifanctrl/package/mtk/applications/luci-app-Airpifanctrl" ]; then
+      mkdir -p package/mtk/applications
+      cp -r /tmp/luci-app-Airpifanctrl/package/mtk/applications/luci-app-Airpifanctrl \
+        package/mtk/applications/luci-app-Airpifanctrl
+    fi
+    rm -rf /tmp/luci-app-Airpifanctrl
+  fi
 }
 
 feed_install_pkg() {
@@ -1054,6 +1275,23 @@ install_selected_packages() {
     feed_install_pkg wpad-mesh-openssl
   fi
 
+  if is_true "$ENABLE_ADGUARDHOME"; then
+    # luci-app-adguardhome + luci-i18n-adguardhome-zh-cn live in the
+    # in-tree package/prebuilt-{luci-app,i18n}/ directories that
+    # ensure_external_luci_i18n_packages materialised. feeds install -f
+    # wires them into package/feeds/... so make defconfig / make world
+    # can resolve them.
+    require_package_file "AdGuardHome prebuilt app" "package/prebuilt-luci-app/luci-app-adguardhome/Makefile"
+    require_package_file "AdGuardHome prebuilt zh-cn" "package/prebuilt-i18n/luci-i18n-adguardhome-zh-cn/Makefile"
+    feed_install_pkg luci-app-adguardhome
+    feed_install_pkg luci-i18n-adguardhome-zh-cn
+  fi
+
+  if is_true "$ENABLE_MWAN3"; then
+    feed_install_pkg mwan3
+    feed_install_pkg luci-app-mwan3
+  fi
+
   if is_true "$ENABLE_MOSDNS"; then
     require_package_file "MosDNS LuCI" "package/mosdns/luci-app-mosdns/Makefile"
     require_package_file "MosDNS core" "package/mosdns/mosdns/Makefile"
@@ -1100,6 +1338,9 @@ enable_upnp_stack_config() {
 }
 
 enable_easymesh_stack_config() {
+  # wpad-* are VARIANTs of the same hostapd source: only one TLS backend and
+  # one feature set can be selected. Disable every other combination so
+  # defconfig cannot silently pick mbedtls/wolfssl alongside openssl.
   config_disable PACKAGE_wpad-basic-mbedtls
   config_disable PACKAGE_wpad-basic-openssl
   config_disable PACKAGE_wpad-basic-wolfssl
@@ -1115,6 +1356,88 @@ enable_easymesh_stack_config() {
   config_enable PACKAGE_luci-app-mtwifi-cfg
   config_enable PACKAGE_luci-i18n-mtwifi-cfg-zh-cn
   config_enable PACKAGE_mtwifi-cfg
+  # MTK MT7992 MAP (Multi-AP / EasyMesh) kernel-side feature switches.
+  # The mt_wifi7 driver exposes them via PKG_KCONFIG (CONFIG_MTK_WIFI7_*).
+  # defconfig already enables MAP_SUPPORT (MAP R1); turning on R2..R6 plus
+  # VENDOR/HOSTAPD gives full EasyMesh certification features: backhaul
+  # steering, 6E MAP, vendor-specific MAP profile, and hostapd MAP R4/R5/R6
+  # message handling. These only affect mt_wifi7.kconfig, they do not change
+  # the kernel itself or the wpad selection.
+  config_enable MTK_WIFI7_MAP_SUPPORT
+  config_enable MTK_WIFI7_MAP_R2_VER_SUPPORT
+  config_enable MTK_WIFI7_MAP_R3_VER_SUPPORT
+  config_enable MTK_WIFI7_MAP_R4_VER_SUPPORT
+  config_enable MTK_WIFI7_MAP_R5_VER_SUPPORT
+  config_enable MTK_WIFI7_MAP_R2_6E_SUPPORT
+  config_enable MTK_WIFI7_MAP_R3_6E_SUPPORT
+  config_enable MTK_WIFI7_MAP_R6_SUPPORT
+  config_enable MTK_WIFI7_MAP_VENDOR_SUPPORT
+  config_enable MTK_WIFI7_MAP_HOSTAPD_SUPPORT
+  # Bridge netfilter is required for bridge-mode mesh forwarding and EAPOL
+  # relay used by 802.11s / EasyMesh.
+  config_enable PACKAGE_kmod-br-netfilter
+}
+
+# Enable the full MWAN3 stack: kernel netfilter modules, iptables userspace
+# extensions, ipset, VRF support, and LuCI integration.
+# - kmod-vrf needs KERNEL_NET_L3_MASTER_DEV, otherwise LuCI's device add dialog
+#   prompts "需要 kmod-vrf" and the package remains unbuildable.
+# - kmod-ipt-ipset / -conntrack-extra / -ipopt must be selected at build time
+#   so they land in the image; otherwise users hit "依赖的软件包 ... 在所有仓库都未提供"
+#   when trying to opkg-install luci-app-mwan3 at runtime.
+enable_mwan3_stack_config() {
+  # Kernel prerequisites for kmod-vrf
+  config_enable KERNEL_NET_L3_MASTER_DEV
+  # MWAN3 core + LuCI
+  config_enable PACKAGE_mwan3
+  config_enable PACKAGE_luci-app-mwan3
+  config_enable PACKAGE_luci-i18n-mwan3-zh-cn
+  # Userspace tools mwan3 invokes.
+  # 'ip' is a virtual package provided by ip-tiny (default) or ip-full.
+  # We pick ip-full explicitly so mwan3 gets the full iproute2 feature set.
+  config_enable PACKAGE_ip-full
+  config_enable PACKAGE_ipset
+  # 'iptables' is a virtual package provided by either iptables-nft or
+  # iptables-zz-legacy. Selecting CONFIG_PACKAGE_iptables=y directly gets
+  # dropped by make defconfig once firewall4 has already picked iptables-nft.
+  # Pick both real variants so mwan3's legacy iptables calls work and the
+  # fw4-required nftables frontend stays available.
+  config_enable PACKAGE_iptables-nft
+  config_enable PACKAGE_iptables-zz-legacy
+  # Same story for IPv6: 'ip6tables' is virtual; select both real variants.
+  config_enable PACKAGE_ip6tables-nft
+  config_enable PACKAGE_ip6tables-zz-legacy
+  # IPv6 kernel modules backing ip6tables. mwan3 v2.11.16 (when IPV6 is
+  # enabled) builds mwan3_hook with -p ipv6-icmp -m icmp6 --icmpv6-type
+  # 133/134/135/136/137 (NDP RS/RA/NS/NA), creates IPv6 ipset tables
+  # (family inet6), and steers IPv6 routing via ip -6. None of those work
+  # if kmod-ip6tables / kmod-ipt-nat6 / libip6tc are absent from the image.
+  config_enable PACKAGE_kmod-ip6tables
+  config_enable PACKAGE_kmod-ip6tables-extra
+  config_enable PACKAGE_kmod-ipt-nat6
+  config_enable PACKAGE_kmod-nf-nat6
+  config_enable PACKAGE_kmod-nf-ipt6
+  config_enable PACKAGE_kmod-ip6-tunnel
+  config_enable PACKAGE_libip6tc
+  config_enable PACKAGE_ip6tables-mod-nat
+  config_enable PACKAGE_ip6tables-extra
+  config_enable PACKAGE_jshn
+  # iptables userspace extensions required by mwan3 scripts
+  config_enable PACKAGE_iptables-mod-conntrack-extra
+  config_enable PACKAGE_iptables-mod-ipopt
+  # Kernel modules backing those extensions
+  config_enable PACKAGE_kmod-ipt-core
+  config_enable PACKAGE_kmod-ipt-conntrack
+  config_enable PACKAGE_kmod-ipt-conntrack-extra
+  config_enable PACKAGE_kmod-ipt-ipopt
+  config_enable PACKAGE_kmod-ipt-ipset
+  config_enable PACKAGE_kmod-ipt-raw
+  config_enable PACKAGE_kmod-nf-conntrack
+  config_enable PACKAGE_kmod-nf-conntrack6
+  config_enable PACKAGE_kmod-nf-conncount
+  config_enable PACKAGE_kmod-nfnetlink
+  # VRF support (needed by LuCI device dialog when adding VRF devices)
+  config_enable PACKAGE_kmod-vrf
 }
 
 enable_h5000m_wifi_driver_config() {
@@ -1253,6 +1576,7 @@ CONFIG_PACKAGE_kmod-inet-diag=y
 CONFIG_PACKAGE_kmod-nft-socket=y
 CONFIG_PACKAGE_kmod-nft-tproxy=y
 CONFIG_PACKAGE_kmod-tun=y
+CONFIG_PACKAGE_kmod-dummy=y
 EOF
   else
     disabled_pkgs+=("nikki" "luci-app-nikki" "luci-i18n-nikki-zh-cn" "luci-i18n-nikki-en")
@@ -1267,6 +1591,22 @@ CONFIG_PACKAGE_wpad-mesh-openssl=y
 CONFIG_PACKAGE_luci-app-mtwifi-cfg=y
 CONFIG_PACKAGE_luci-i18n-mtwifi-cfg-zh-cn=y
 CONFIG_PACKAGE_mtwifi-cfg=y
+# MTK MT7992 MAP (EasyMesh) feature switches: enable R1..R6 plus
+# vendor-specific and hostapd extensions so the MAP-certified feature set
+# compiles into mt7992.ko. Default mt7987_mt7992.config already selects
+# MAP_SUPPORT (R1); we expand it for full Multi-AP behavior.
+CONFIG_MTK_WIFI7_MAP_SUPPORT=y
+CONFIG_MTK_WIFI7_MAP_R2_VER_SUPPORT=y
+CONFIG_MTK_WIFI7_MAP_R3_VER_SUPPORT=y
+CONFIG_MTK_WIFI7_MAP_R4_VER_SUPPORT=y
+CONFIG_MTK_WIFI7_MAP_R5_VER_SUPPORT=y
+CONFIG_MTK_WIFI7_MAP_R6_SUPPORT=y
+CONFIG_MTK_WIFI7_MAP_R2_6E_SUPPORT=y
+CONFIG_MTK_WIFI7_MAP_R3_6E_SUPPORT=y
+CONFIG_MTK_WIFI7_MAP_VENDOR_SUPPORT=y
+CONFIG_MTK_WIFI7_MAP_HOSTAPD_SUPPORT=y
+# Bridge netfilter for 802.11s / EAPOL relay
+CONFIG_PACKAGE_kmod-br-netfilter=y
 EOF
   else
     disabled_pkgs+=("mesh11sd" "wpad-mesh-openssl")
@@ -1320,6 +1660,47 @@ EOF
   fi
   if is_true "$ENABLE_EASYMESH"; then
     enable_easymesh_stack_config
+  fi
+  if is_true "$ENABLE_MWAN3"; then
+    cat >> .config <<'EOF'
+CONFIG_KERNEL_NET_L3_MASTER_DEV=y
+CONFIG_PACKAGE_kmod-vrf=y
+CONFIG_PACKAGE_mwan3=y
+CONFIG_PACKAGE_luci-app-mwan3=y
+CONFIG_PACKAGE_luci-i18n-mwan3-zh-cn=y
+CONFIG_PACKAGE_ip-full=y
+CONFIG_PACKAGE_ipset=y
+CONFIG_PACKAGE_iptables-nft=y
+CONFIG_PACKAGE_iptables-zz-legacy=y
+CONFIG_PACKAGE_ip6tables-nft=y
+CONFIG_PACKAGE_ip6tables-zz-legacy=y
+# IPv6 netfilter kernel + userspace pieces needed by mwan3 in IPV6 mode
+# (NDP-matching ip6tables hooks, IPv6 NAT, ipset family inet6).
+CONFIG_PACKAGE_kmod-ip6tables=y
+CONFIG_PACKAGE_kmod-ip6tables-extra=y
+CONFIG_PACKAGE_kmod-ipt-nat6=y
+CONFIG_PACKAGE_kmod-nf-nat6=y
+CONFIG_PACKAGE_kmod-nf-ipt6=y
+CONFIG_PACKAGE_kmod-ip6-tunnel=y
+CONFIG_PACKAGE_libip6tc=y
+CONFIG_PACKAGE_ip6tables-mod-nat=y
+CONFIG_PACKAGE_ip6tables-extra=y
+CONFIG_PACKAGE_jshn=y
+CONFIG_PACKAGE_iptables-mod-conntrack-extra=y
+CONFIG_PACKAGE_iptables-mod-ipopt=y
+CONFIG_PACKAGE_kmod-ipt-core=y
+CONFIG_PACKAGE_kmod-ipt-conntrack=y
+CONFIG_PACKAGE_kmod-ipt-conntrack-extra=y
+CONFIG_PACKAGE_kmod-ipt-ipopt=y
+CONFIG_PACKAGE_kmod-ipt-ipset=y
+CONFIG_PACKAGE_kmod-ipt-raw=y
+CONFIG_PACKAGE_kmod-nf-conntrack=y
+CONFIG_PACKAGE_kmod-nf-conntrack6=y
+CONFIG_PACKAGE_kmod-nf-conncount=y
+CONFIG_PACKAGE_kmod-nfnetlink=y
+EOF
+  else
+    disabled_pkgs+=("mwan3" "luci-app-mwan3" "luci-i18n-mwan3-zh-cn")
   fi
   is_true "$ENABLE_ADBYBY_PLUS" && { echo "CONFIG_PACKAGE_luci-app-adbyby-plus=y" >> .config; echo "CONFIG_PACKAGE_luci-i18n-adbyby-plus-zh-cn=y" >> .config; echo "CONFIG_PACKAGE_ipset=y" >> .config; } || disabled_pkgs+=("luci-app-adbyby-plus" "luci-i18n-adbyby-plus-zh-cn")
 
@@ -1411,6 +1792,10 @@ EOF
     enable_easymesh_stack_config
   fi
 
+  if is_true "$ENABLE_MWAN3"; then
+    enable_mwan3_stack_config
+  fi
+
   if is_true "$ENABLE_HOMEPROXY"; then
     config_enable PACKAGE_luci-app-homeproxy
     config_enable PACKAGE_luci-i18n-homeproxy-zh-cn
@@ -1445,6 +1830,14 @@ EOF
   verify_enabled_pkg "OpenClash" "luci-app-openclash" "$ENABLE_OPENCLASH"
   verify_enabled_pkg "AdGuardHome" "luci-app-adguardhome" "$ENABLE_ADGUARDHOME"
   verify_enabled_pkg "AdGuardHome zh-cn" "luci-i18n-adguardhome-zh-cn" "$ENABLE_ADGUARDHOME"
+  # sirpdboy/luci-app-adguardhome is shipped as a prebuilt ipk. The Makefile
+  # that wraps it lives under package/prebuilt-luci-app/. If it is missing
+  # make defconfig will silently drop CONFIG_PACKAGE_luci-app-adguardhome=y
+  # and verify_enabled_pkg above will fail with no actionable cause.
+  if is_true "$ENABLE_ADGUARDHOME"; then
+    require_package_file "AdGuardHome prebuilt app" "package/prebuilt-luci-app/luci-app-adguardhome/Makefile"
+    require_package_file "AdGuardHome prebuilt zh-cn" "package/prebuilt-i18n/luci-i18n-adguardhome-zh-cn/Makefile"
+  fi
   verify_enabled_pkg "UPnP" "luci-app-upnp" "$ENABLE_UPNP"
   verify_enabled_pkg "UPnP zh-cn" "luci-i18n-upnp-zh-cn" "$ENABLE_UPNP"
   verify_enabled_pkg "UPnP miniupnpd" "miniupnpd-nftables" "$ENABLE_UPNP"
@@ -1468,7 +1861,52 @@ EOF
   verify_enabled_pkg "Adbyby Plus zh-cn" "luci-i18n-adbyby-plus-zh-cn" "$ENABLE_ADBYBY_PLUS"
   verify_enabled_pkg "EasyMesh mesh daemon" "mesh11sd" "$ENABLE_EASYMESH"
   verify_enabled_pkg "EasyMesh wpad mesh" "wpad-mesh-openssl" "$ENABLE_EASYMESH"
+  verify_enabled_pkg "EasyMesh bridge netfilter" "kmod-br-netfilter" "$ENABLE_EASYMESH"
+  verify_enabled_pkg "EasyMesh MTK MT7992 driver" "kmod-mt7992" "$ENABLE_EASYMESH"
+  verify_enabled_pkg "EasyMesh MTK MT799A driver" "kmod-mt799a" "$ENABLE_EASYMESH"
+  if is_true "$ENABLE_EASYMESH"; then
+    verify_config_symbol "EasyMesh MTK MAP R1 base" "CONFIG_MTK_WIFI7_MAP_SUPPORT=y"
+    verify_config_symbol "EasyMesh MTK MAP R2" "CONFIG_MTK_WIFI7_MAP_R2_VER_SUPPORT=y"
+    verify_config_symbol "EasyMesh MTK MAP R3" "CONFIG_MTK_WIFI7_MAP_R3_VER_SUPPORT=y"
+    verify_config_symbol "EasyMesh MTK MAP R4" "CONFIG_MTK_WIFI7_MAP_R4_VER_SUPPORT=y"
+    verify_config_symbol "EasyMesh MTK MAP R5" "CONFIG_MTK_WIFI7_MAP_R5_VER_SUPPORT=y"
+    verify_config_symbol "EasyMesh MTK MAP R6" "CONFIG_MTK_WIFI7_MAP_R6_SUPPORT=y"
+    verify_config_symbol "EasyMesh MTK MAP vendor" "CONFIG_MTK_WIFI7_MAP_VENDOR_SUPPORT=y"
+    verify_config_symbol "EasyMesh MTK MAP hostapd" "CONFIG_MTK_WIFI7_MAP_HOSTAPD_SUPPORT=y"
+  fi
+  verify_enabled_pkg "MWAN3 core" "mwan3" "$ENABLE_MWAN3"
+  verify_enabled_pkg "MWAN3 LuCI" "luci-app-mwan3" "$ENABLE_MWAN3"
+  verify_enabled_pkg "MWAN3 zh-cn" "luci-i18n-mwan3-zh-cn" "$ENABLE_MWAN3"
+  verify_enabled_pkg "MWAN3 ipset userspace" "ipset" "$ENABLE_MWAN3"
+  verify_enabled_pkg "MWAN3 iptables-nft" "iptables-nft" "$ENABLE_MWAN3"
+  verify_enabled_pkg "MWAN3 iptables-zz-legacy" "iptables-zz-legacy" "$ENABLE_MWAN3"
+  verify_enabled_pkg "MWAN3 ip6tables-nft" "ip6tables-nft" "$ENABLE_MWAN3"
+  verify_enabled_pkg "MWAN3 ip6tables-zz-legacy" "ip6tables-zz-legacy" "$ENABLE_MWAN3"
+  verify_enabled_pkg "MWAN3 IPv6 netfilter core" "kmod-ip6tables" "$ENABLE_MWAN3"
+  verify_enabled_pkg "MWAN3 IPv6 icmp6 match" "kmod-ip6tables-extra" "$ENABLE_MWAN3"
+  verify_enabled_pkg "MWAN3 IPv6 NAT" "kmod-ipt-nat6" "$ENABLE_MWAN3"
+  verify_enabled_pkg "MWAN3 IPv6 NAT core" "kmod-nf-nat6" "$ENABLE_MWAN3"
+  verify_enabled_pkg "MWAN3 IPv6 iptables core" "kmod-nf-ipt6" "$ENABLE_MWAN3"
+  verify_enabled_pkg "MWAN3 libip6tc" "libip6tc" "$ENABLE_MWAN3"
+  verify_enabled_pkg "MWAN3 ip6tables-mod-nat" "ip6tables-mod-nat" "$ENABLE_MWAN3"
+  verify_enabled_pkg "MWAN3 iptables-mod-conntrack-extra" "iptables-mod-conntrack-extra" "$ENABLE_MWAN3"
+  verify_enabled_pkg "MWAN3 iptables-mod-ipopt" "iptables-mod-ipopt" "$ENABLE_MWAN3"
+  verify_enabled_pkg "MWAN3 kmod-ipt-conntrack-extra" "kmod-ipt-conntrack-extra" "$ENABLE_MWAN3"
+  verify_enabled_pkg "MWAN3 kmod-ipt-ipopt" "kmod-ipt-ipopt" "$ENABLE_MWAN3"
+  verify_enabled_pkg "MWAN3 kmod-ipt-ipset" "kmod-ipt-ipset" "$ENABLE_MWAN3"
+  verify_enabled_pkg "MWAN3 kmod-vrf" "kmod-vrf" "$ENABLE_MWAN3"
+  if is_true "$ENABLE_MWAN3"; then
+    verify_config_symbol "MWAN3 VRF kernel prereq" "CONFIG_KERNEL_NET_L3_MASTER_DEV=y"
+  fi
   verify_enabled_pkg "MT WiFi zh-cn" "luci-i18n-mtwifi-cfg-zh-cn" true
+  # Network acceleration (turboacc-mtk) and fan control (Airpifanctrl) are
+  # always-on base options in h5000m.extra.config; if the upstream package
+  # trees got renamed/moved the clones in apply_package_fixes will be
+  # missing and these checks will fail loudly instead of silently dropping
+  # the .config symbol.
+  verify_enabled_pkg "turboacc-mtk LuCI" "luci-app-turboacc-mtk" true
+  verify_enabled_pkg "Airpifanctrl LuCI" "luci-app-Airpifanctrl" true
+  verify_enabled_pkg "kmod-mediatek_hnat" "kmod-mediatek_hnat" true
   verify_config_symbol "H5000M USE_RFKILL dependency" "CONFIG_USE_RFKILL=y"
   verify_enabled_pkg "H5000M blkid dependency" "blkid" true
   verify_enabled_pkg "H5000M MT WiFi common" "kmod-mt_wifi_cmn" true
@@ -1484,7 +1922,6 @@ EOF
   verify_enabled_pkg "H5000M Connac interface" "kmod-connac_if" true
   verify_enabled_pkg "H5000M MT7992 chip driver" "kmod-mt7992" true
   verify_enabled_pkg "H5000M MT799A chip driver" "kmod-mt799a" true
-  verify_translation_file "AdGuardHome built-in zh-cn" "package/luci-app-adguardhome/po/zh-cn/AdGuardHome.po" "$ENABLE_ADGUARDHOME"
   verify_translation_file "OpenClash built-in zh-cn" "package/luci-app-openclash/po/zh-cn/openclash.zh-cn.po" "$ENABLE_OPENCLASH"
   verify_translation_file "Adbyby Plus built-in zh-cn" "package/luci-app-adbyby-plus/po/zh-cn/adbyby.po" "$ENABLE_ADBYBY_PLUS"
   verify_mtk_easymesh_assets

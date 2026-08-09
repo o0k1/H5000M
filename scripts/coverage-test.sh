@@ -49,6 +49,7 @@ base_env=(
   ENABLE_ADBYBY_PLUS=false
   ENABLE_ORIGINAL_MODEM=false
   ENABLE_EASYMESH=true
+  ENABLE_MWAN3=false
 )
 
 run_static_checks() {
@@ -135,6 +136,16 @@ run_named_profile() {
       run_profile dockerman "$mode" \
         ENABLE_NIKKI=false ENABLE_MOSDNS=false ENABLE_DOCKERMAN=true ENABLE_QMODEM_NEXT=false
       ;;
+    mwan3)
+      run_profile mwan3 "$mode" \
+        ENABLE_NIKKI=false ENABLE_MOSDNS=false ENABLE_QMODEM_NEXT=false ENABLE_MWAN3=true
+      ;;
+    all-compatible-mwan3)
+      run_profile all-compatible-mwan3 "$mode" \
+        ENABLE_ADGUARDHOME=true ENABLE_OPENCLASH=true ENABLE_NIKKI=true ENABLE_UPNP=true \
+        ENABLE_VLMCSD=true ENABLE_MOSDNS=true ENABLE_DOCKERMAN=true ENABLE_QMODEM_NEXT=true \
+        ENABLE_ORIGINAL_MODEM=false ENABLE_EASYMESH=true ENABLE_MWAN3=true
+      ;;
     *)
       echo "Unknown coverage profile: $name" >&2
       exit 2
@@ -148,7 +159,7 @@ profiles_for_set() {
       printf '%s\n' default proxy-stack
       ;;
     full)
-      printf '%s\n' default minimal proxy-stack homeproxy-only mosdns-only nikki-only qmodem-legacy original-modem optional-services all-compatible dockerman
+      printf '%s\n' default minimal proxy-stack homeproxy-only mosdns-only nikki-only qmodem-legacy original-modem optional-services all-compatible dockerman mwan3 all-compatible-mwan3
       ;;
     *)
       echo "Unknown PROFILE_SET: $PROFILE_SET" >&2
