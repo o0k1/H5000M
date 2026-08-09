@@ -626,20 +626,6 @@ jobs:
           tar -xzf source.tar.gz
           echo "✅ 源码解压完成"
 
-      - name: 安装编译依赖
-        run: |
-          echo "📦 安装编译依赖..."
-          sudo apt update
-          sudo apt install -y build-essential git ccache python3 python3-pip \
-            libncurses5-dev libssl-dev libgmp3-dev libmbedtls-dev rustc cargo \
-            golang-go autoconf automake libtool patch make gcc g++ gawk gettext \
-            unzip file wget curl rsync zstd swig
-          
-          # 设置 ccache
-          export PATH="/usr/lib/ccache:$PATH"
-          echo "PATH=/usr/lib/ccache:$PATH" >> $GITHUB_ENV
-          echo "✅ 编译依赖安装完成"
-
       - name: 深度清理磁盘空间
         run: |
           echo "🧹 执行深度清理以释放磁盘空间..."
@@ -665,6 +651,28 @@ jobs:
           
           AVAIL_GB=$(df -BG / | tail -1 | awk '{print $4}' | sed 's/G//')
           echo "✅ 清理后可用磁盘空间: ${AVAIL_GB}GB"
+
+      - name: 安装编译依赖
+        run: |
+          set -euo pipefail
+          sudo timedatectl set-timezone "$TZ" || true
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            build-essential ack antlr3 asciidoc autoconf automake autopoint binutils bison \
+            bzip2 ccache clang cmake cpio curl device-tree-compiler ecj fastjar flex gawk \
+            gettext gcc-multilib g++-multilib git gnutls-dev gperf haveged help2man intltool \
+            lib32gcc-s1 libc6-dev-i386 libelf-dev libfuse-dev libglib2.0-dev libgmp3-dev \
+            libltdl-dev libmbedtls-dev libmpc-dev libmpfr-dev libncurses5-dev libncursesw5-dev \
+            libpython3-dev libreadline-dev libssl-dev libtool lld llvm lrzsz mkisofs msmtp \
+            nano ninja-build p7zip p7zip-full patch pkgconf python3 python3-pip python3-ply \
+            python3-pyelftools python3-setuptools qemu-utils re2c rsync scons squashfs-tools \
+            subversion swig texinfo uglifyjs unzip upx-ucl vim wget xmlto xxd zlib1g-dev \
+            rustc cargo golang-go zstd file 2>&1 | tail -3
+          
+          # 设置 ccache
+          export PATH="/usr/lib/ccache:$PATH"
+          echo "PATH=/usr/lib/ccache:$PATH" >> $GITHUB_ENV
+          echo "✅ 编译依赖安装完成"
 
       - name: 编译固件
         run: |
