@@ -101,7 +101,7 @@ env:
 
 jobs:
   prepare:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     outputs:
       enable_adguardhome: ${{ steps.set-env.outputs.enable_adguardhome }}
       enable_openclash: ${{ steps.set-env.outputs.enable_openclash }}
@@ -382,13 +382,8 @@ jobs:
           # 修复 mt_hwifi
           [ -f "package/mtk/drivers/mt_hwifi/Makefile" ] && sed -i 's/+kmod-mt_wifi_osal//g' "package/mtk/drivers/mt_hwifi/Makefile" || true
 
-          # SSRP 相关修复
-          if [ "${{ steps.set-env.outputs.enable_ssrp }}" = "true" ]; then
-            sed -i 's/--set=llvm\.download-ci-llvm=true/--set=llvm.download-ci-llvm=false/' feeds/packages/lang/rust/Makefile
-          fi
-
-          # Passwall2 相关修复
-          if [ "${{ steps.set-env.outputs.enable_passwall2 }}" = "true" ]; then
+          # 代理相关 Rust 构建工具链修复
+          if [ "${{ steps.set-env.outputs.enable_ssrp }}" = "true" ] || [ "${{ steps.set-env.outputs.enable_passwall2 }}" = "true" ]; then
             sed -i 's/--set=llvm\.download-ci-llvm=true/--set=llvm.download-ci-llvm=false/' feeds/packages/lang/rust/Makefile
           fi
 
@@ -424,6 +419,10 @@ jobs:
             echo "📄 应用额外配置..."
             cat "$GITHUB_WORKSPACE/h5000m.extra.config" >> .config
           fi
+
+          # 上游的 local-build.sh 里还追加了以下起作用的内容，不过这边暂时用不到所以就先不追加了
+          #CONFIG_USE_RFKILL=y
+          #CONFIG_PACKAGE_blkid=y
 
           # 根据输入动态配置包（简化：只启用顶层包，依赖由 make defconfig 自动解析）
           disabled_pkgs=("luci-app-sms-tool-lite" "luci-app-3ginfo-lite")
@@ -536,6 +535,7 @@ jobs:
           # QModem 特殊处理（互斥）
           if [ "${{ steps.set-env.outputs.enable_qmodem_next }}" = "true" ]; then
             echo "CONFIG_PACKAGE_luci-app-qmodem-next=y" >> .config
+            echo "CONFIG_PACKAGE_luci-i18n-qmodem-next-zh-cn=y" >> .config
           elif [ "${{ steps.set-env.outputs.enable_qmodem }}" = "true" ]; then
             echo "CONFIG_PACKAGE_luci-app-qmodem=y" >> .config
             # QModem 核心
@@ -568,7 +568,7 @@ jobs:
             # HQOS 支持
             echo "CONFIG_PACKAGE_mtkhqos_util=y" >> .config
           else
-            disabled_pkgs+=("luci-app-qmodem-next" "luci-app-qmodem")
+            disabled_pkgs+=("luci-app-qmodem-next" "luci-i18n-qmodem-next-zh-cn" "luci-app-qmodem")
           fi
 
           # 统一禁用不需要的包
@@ -613,7 +613,7 @@ jobs:
 
   build:
     needs: prepare
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     steps:
       - name: 下载源码
         uses: actions/download-artifact@v8
@@ -629,10 +629,11 @@ jobs:
       - name: 安装编译依赖
         run: |
           echo "📦 安装编译依赖..."
-          sudo apt-get update -qq
-          sudo apt-get install -y build-essential git ccache python3 python3-pip \
+          sudo apt update
+          sudo apt install -y build-essential git ccache python3 python3-pip \
             libncurses5-dev libssl-dev libgmp3-dev libmbedtls-dev rustc cargo \
-            golang-go autoconf automake libtool patch make gcc g++ gawk gettext unzip file wget
+            golang-go autoconf automake libtool patch make gcc g++ gawk gettext \
+            unzip file wget curl rsync zstd swig
           
           # 设置 ccache
           export PATH="/usr/lib/ccache:$PATH"
@@ -725,7 +726,7 @@ jobs:
 
   release:
     needs: [prepare, build]
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     if: success()
     steps:
       - name: 下载产物
