@@ -667,7 +667,8 @@ jobs:
             nano ninja-build p7zip p7zip-full patch pkgconf python3 python3-pip python3-ply \
             python3-pyelftools python3-setuptools qemu-utils re2c rsync scons squashfs-tools \
             subversion swig texinfo uglifyjs unzip upx-ucl vim wget xmlto xxd zlib1g-dev \
-            rustc cargo golang-go zstd file 2>&1 | tail -3
+            zstd file 2>&1 | tail -3
+            # 装不上 rustc cargo golang-go ，不知原因，暂时先试试不带这些
           
           # 设置 ccache
           export PATH="/usr/lib/ccache:$PATH"
