@@ -741,7 +741,7 @@ jobs:
           tar -xzf artifacts.tar.gz
           echo "✅ 产物解压完成"
 
-      - name: 收集和上传产物
+      - name: Prepare Manifest
         run: |
           if [ -z "$(ls -A artifacts/ 2>/dev/null)" ]; then
             echo "❌ 没有找到产物文件"
@@ -749,45 +749,62 @@ jobs:
           fi
 
           # 生成清单
-          cat > artifacts/MANIFEST.txt << EOF
-          ╔════════════════════════════════════════════════╗
-          ║    ImmortalWrt H5000M 固件构建信息             ║
-          ╚════════════════════════════════════════════════╝
+          cat > MANIFEST.txt << EOF
+          # ImmortalWrt H5000M 固件构建信息
 
           📅 构建时间: $(date '+%Y-%m-%d %H:%M:%S')
 
           ⚙️ 启用的功能:
-          • AdGuardHome:   ${{ needs.prepare.outputs.enable_adguardhome }}
-          • OpenClash:     ${{ needs.prepare.outputs.enable_openclash }}
-          • Nikki:        ${{ needs.prepare.outputs.enable_nikki }}
-          • UPnP:          ${{ needs.prepare.outputs.enable_upnp }}
-          • VLMCSd:        ${{ needs.prepare.outputs.enable_vlmcsd }}
-          • MosDNS:        ${{ needs.prepare.outputs.enable_mosdns }}
-          • DockerMan:     ${{ needs.prepare.outputs.enable_dockerman }}
-          • QModem Next:   ${{ needs.prepare.outputs.enable_qmodem_next }}
-          • QModem:        ${{ needs.prepare.outputs.enable_qmodem }}
-          • MWAN:          ${{ needs.prepare.outputs.enable_mwan }}
-          • HomeProxy:     ${{ needs.prepare.outputs.enable_homeproxy }}
-          • Adbyby Plus:   ${{ needs.prepare.outputs.enable_adbyby_plus }}
-          • 原版 Modem:    ${{ needs.prepare.outputs.enable_original_modem }}
-          • SSRP:          ${{ needs.prepare.outputs.enable_ssrp }}
-          • Passwall2:     ${{ needs.prepare.outputs.enable_passwall2 }}
-          • SmartDNS:      ${{ needs.prepare.outputs.enable_smartdns }}
-
-          📦 产物文件:
           EOF
 
+          declare -A package_name=(
+            [adguardhome]='AdGuardHome'
+            [openclash]='OpenClash'
+            [nikki]='Nikki'
+            [upnp]='UPnP'
+            [vlmcsd]='VLMCSd'
+            [mosdns]='MosDNS'
+            [dockerman]='DockerMan'
+            [qmodem_next]='QModemNext'
+            [qmodem]='QModem'
+            [mwan]='MWAN'
+            [homeproxy]='HomeProxy'
+            [adbyby_plus]='AdbybyPlus'
+            [original_modem]='原版Modem'
+            [ssrp]='SSRP'
+            [passwall2]='Passwall2'
+            [smartdns]='SmartDNS'
+          )
+          declare -A package_status=(
+            [adguardhome]='${{ steps.set-env.outputs.enable_adguardhome }}'
+            [openclash]='${{ steps.set-env.outputs.enable_openclash }}'
+            [nikki]='${{ steps.set-env.outputs.enable_nikki }}'
+            [upnp]='${{ steps.set-env.outputs.enable_upnp }}'
+            [vlmcsd]='${{ steps.set-env.outputs.enable_vlmcsd }}'
+            [mosdns]='${{ steps.set-env.outputs.enable_mosdns }}'
+            [dockerman]='${{ steps.set-env.outputs.enable_dockerman }}'
+            [qmodem_next]='${{ steps.set-env.outputs.enable_qmodem_next }}'
+            [qmodem]='${{ steps.set-env.outputs.enable_qmodem }}'
+            [mwan]='${{ steps.set-env.outputs.enable_mwan }}'
+            [homeproxy]='${{ steps.set-env.outputs.enable_homeproxy }}'
+            [adbyby_plus]='${{ steps.set-env.outputs.enable_adbyby_plus }}'
+            [original_modem]='${{ steps.set-env.outputs.enable_original_modem }}'
+            [ssrp]='${{ steps.set-env.outputs.enable_ssrp }}'
+            [passwall2]='${{ steps.set-env.outputs.enable_passwall2 }}'
+            [smartdns]='${{ steps.set-env.outputs.enable_smartdns }}'
+          )
+          for k in "${!package_name[@]}"; do
+            if [ "${package_status[$k]:-}" = "true" ]; then
+              echo "  - ${package_name[$k]}" >> MANIFEST.txt
+            fi
+          done
+
+          echo "📦 产物文件:" >> MANIFEST.txt
+
           cd artifacts
-          ls -lh | grep -v "^total" | awk '{print "  • " $9 " (" $5 ")"}' >> MANIFEST.txt
+          ls -lh | grep -v "^total" | awk '{print "  - " $9 " (" $5 ")"}' >> ../MANIFEST.txt
 
           echo "✅ 产物收集完成"
-
-      - name: 上传构建结果
-        uses: actions/upload-artifact@v7
-        with:
-          name: ImmortalWrt-H5000M
-          path: artifacts/
-          retention-days: 30
 
       - name: Get release tag
         id: release_tag
@@ -800,34 +817,11 @@ jobs:
         with:
           tag_name: ${{ steps.release_tag.outputs.release_tag }}
           name: ${{ steps.release_tag.outputs.release_tag }}
-          body: |
-            🎉 **ImmortalWrt H5000M 固件已构建完成**
-
-            🏷️ Build #: ${{ steps.release_tag.outputs.release_tag }}
-
-            **⚙️ 启用的功能:**
-            - AdGuardHome: ${{ needs.prepare.outputs.enable_adguardhome }}
-            - OpenClash: ${{ needs.prepare.outputs.enable_openclash }}
-            - Nikki: ${{ needs.prepare.outputs.enable_nikki }}
-            - UPnP: ${{ needs.prepare.outputs.enable_upnp }}
-            - VLMCSd: ${{ needs.prepare.outputs.enable_vlmcsd }}
-            - MosDNS: ${{ needs.prepare.outputs.enable_mosdns }}
-            - DockerMan: ${{ needs.prepare.outputs.enable_dockerman }}
-            - MWAN: ${{ needs.prepare.outputs.enable_mwan }}
-            - HomeProxy: ${{ needs.prepare.outputs.enable_homeproxy }}
-            - Adbyby Plus: ${{ needs.prepare.outputs.enable_adbyby_plus }}
-            - 原版 Modem: ${{ needs.prepare.outputs.enable_original_modem }}
-            - SSRP: ${{ needs.prepare.outputs.enable_ssrp }}
-            - Passwall2: ${{ needs.prepare.outputs.enable_passwall2 }}
-            - SmartDNS: ${{ needs.prepare.outputs.enable_smartdns }}
-
-            💾 下载产物: 见下方 Artifacts
-            📋 详细信息: 见 MANIFEST.txt
+          body_path: MANIFEST.txt
           files: artifacts/*
           draft: true # 为了上传文件
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
 
       - name: 发布 GitHub Release
         uses: softprops/action-gh-release@v3
