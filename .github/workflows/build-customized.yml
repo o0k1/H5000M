@@ -382,8 +382,10 @@ jobs:
           # 修复 mt_hwifi
           [ -f "package/mtk/drivers/mt_hwifi/Makefile" ] && sed -i 's/+kmod-mt_wifi_osal//g' "package/mtk/drivers/mt_hwifi/Makefile" || true
 
-          # 代理相关 Rust 构建工具链修复
+          # 代理相关构建工具链修复
           if [ "${{ steps.set-env.outputs.enable_ssrp }}" = "true" ] || [ "${{ steps.set-env.outputs.enable_passwall2 }}" = "true" ]; then
+            rm -rf feeds/packages/lang/golang
+            git clone https://github.com/o0k1/openwrt-packages-lang-golang -b openwrt-25.12 feeds/packages/lang/golang
             sed -i 's/--set=llvm\.download-ci-llvm=true/--set=llvm.download-ci-llvm=false/' feeds/packages/lang/rust/Makefile
           fi
 
