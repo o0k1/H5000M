@@ -609,7 +609,7 @@ jobs:
       - name: 上传源码
         uses: actions/upload-artifact@v7
         with:
-          name: source-${{ github.run_number }}
+          name: source
           path: source.tar.gz
           retention-days: 1
 
@@ -620,7 +620,7 @@ jobs:
       - name: 下载源码
         uses: actions/download-artifact@v8
         with:
-          name: source-${{ github.run_number }}
+          name: source
 
       - name: 解压源码
         run: |
@@ -721,7 +721,7 @@ jobs:
       - name: 上传产物
         uses: actions/upload-artifact@v7
         with:
-          name: artifacts-${{ github.run_number }}
+          name: artifacts
           path: artifacts.tar.gz
           retention-days: 30
 
@@ -733,7 +733,7 @@ jobs:
       - name: 下载产物
         uses: actions/download-artifact@v8
         with:
-          name: artifacts-${{ github.run_number }}
+          name: artifacts
 
       - name: 解压产物
         run: |
@@ -755,8 +755,6 @@ jobs:
           ╚════════════════════════════════════════════════╝
 
           📅 构建时间: $(date '+%Y-%m-%d %H:%M:%S')
-          🔗 运行 ID: ${{ github.run_id }}
-          🏷️  Build #: ${{ github.run_number }}
 
           ⚙️ 启用的功能:
           • AdGuardHome:   ${{ needs.prepare.outputs.enable_adguardhome }}
@@ -787,7 +785,7 @@ jobs:
       - name: 上传构建结果
         uses: actions/upload-artifact@v7
         with:
-          name: ImmortalWrt-H5000M-${{ github.run_number }}
+          name: ImmortalWrt-H5000M
           path: artifacts/
           retention-days: 30
 
@@ -801,12 +799,11 @@ jobs:
         uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ steps.release_tag.outputs.release_tag }}
-          name: ImmortalWrt H5000M ${{ steps.release_tag.outputs.release_tag }}
+          name: ${{ steps.release_tag.outputs.release_tag }}
           body: |
             🎉 **ImmortalWrt H5000M 固件已构建完成**
 
-            📅 时间: ${{ steps.release_tag.outputs.release_tag }}
-            🔗 运行 ID: ${{ github.run_id }}
+            🏷️ Build #: ${{ steps.release_tag.outputs.release_tag }}
 
             **⚙️ 启用的功能:**
             - AdGuardHome: ${{ needs.prepare.outputs.enable_adguardhome }}
