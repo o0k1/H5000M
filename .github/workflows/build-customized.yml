@@ -656,7 +656,7 @@ jobs:
         run: |
           set -euo pipefail
           sudo timedatectl set-timezone "$TZ" || true
-          sudo bash scripts/init_build_environment.sh
+          sudo bash -c 'bash <(curl -s https://raw.githubusercontent.com/o0k1/H5000M/refs/heads/main/scripts/init_build_environment.sh)'
           echo "✅ 编译依赖安装完成"
 
       - name: 设置 ccache
