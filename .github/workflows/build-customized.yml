@@ -124,22 +124,22 @@ jobs:
         id: set-env
         run: |
           # 从 workflow_dispatch inputs 读取配置
-          echo "enable_adguardhome=${{ github.event.inputs.enable_adguardhome || 'false' }}" >> $GITHUB_OUTPUT
-          echo "enable_openclash=${{ github.event.inputs.enable_openclash || 'false' }}" >> $GITHUB_OUTPUT
-          echo "enable_nikki=${{ github.event.inputs.enable_nikki || 'false' }}" >> $GITHUB_OUTPUT
-          echo "enable_upnp=${{ github.event.inputs.enable_upnp || 'false' }}" >> $GITHUB_OUTPUT
-          echo "enable_vlmcsd=${{ github.event.inputs.enable_vlmcsd || 'true' }}" >> $GITHUB_OUTPUT
-          echo "enable_mosdns=${{ github.event.inputs.enable_mosdns || 'false' }}" >> $GITHUB_OUTPUT
-          echo "enable_dockerman=${{ github.event.inputs.enable_dockerman || 'false' }}" >> $GITHUB_OUTPUT
-          echo "enable_qmodem_next=${{ github.event.inputs.enable_qmodem_next || 'true' }}" >> $GITHUB_OUTPUT
-          echo "enable_qmodem=${{ github.event.inputs.enable_qmodem || 'false' }}" >> $GITHUB_OUTPUT
-          echo "enable_mwan=${{ github.event.inputs.enable_mwan || 'false' }}" >> $GITHUB_OUTPUT
-          echo "enable_homeproxy=${{ github.event.inputs.enable_homeproxy || 'false' }}" >> $GITHUB_OUTPUT
-          echo "enable_adbyby_plus=${{ github.event.inputs.enable_adbyby_plus || 'false' }}" >> $GITHUB_OUTPUT
+          echo "enable_adguardhome=${{ github.event.inputs.enable_adguardhome       || 'false' }}" >> $GITHUB_OUTPUT
+          echo "enable_openclash=${{ github.event.inputs.enable_openclash           || 'false' }}" >> $GITHUB_OUTPUT
+          echo "enable_nikki=${{ github.event.inputs.enable_nikki                   || 'false' }}" >> $GITHUB_OUTPUT
+          echo "enable_upnp=${{ github.event.inputs.enable_upnp                     || 'false' }}" >> $GITHUB_OUTPUT
+          echo "enable_vlmcsd=${{ github.event.inputs.enable_vlmcsd                 ||  'true' }}" >> $GITHUB_OUTPUT
+          echo "enable_mosdns=${{ github.event.inputs.enable_mosdns                 || 'false' }}" >> $GITHUB_OUTPUT
+          echo "enable_dockerman=${{ github.event.inputs.enable_dockerman           || 'false' }}" >> $GITHUB_OUTPUT
+          echo "enable_qmodem_next=${{ github.event.inputs.enable_qmodem_next       ||  'true' }}" >> $GITHUB_OUTPUT
+          echo "enable_qmodem=${{ github.event.inputs.enable_qmodem                 || 'false' }}" >> $GITHUB_OUTPUT
+          echo "enable_mwan=${{ github.event.inputs.enable_mwan                     || 'false' }}" >> $GITHUB_OUTPUT
+          echo "enable_homeproxy=${{ github.event.inputs.enable_homeproxy           || 'false' }}" >> $GITHUB_OUTPUT
+          echo "enable_adbyby_plus=${{ github.event.inputs.enable_adbyby_plus       || 'false' }}" >> $GITHUB_OUTPUT
           echo "enable_original_modem=${{ github.event.inputs.enable_original_modem || 'false' }}" >> $GITHUB_OUTPUT
-          echo "enable_ssrp=${{ github.event.inputs.enable_ssrp || 'false' }}" >> $GITHUB_OUTPUT
-          echo "enable_passwall2=${{ github.event.inputs.enable_passwall2 || 'true' }}" >> $GITHUB_OUTPUT
-          echo "enable_smartdns=${{ github.event.inputs.enable_smartdns || 'true' }}" >> $GITHUB_OUTPUT
+          echo "enable_ssrp=${{ github.event.inputs.enable_ssrp                     || 'false' }}" >> $GITHUB_OUTPUT
+          echo "enable_passwall2=${{ github.event.inputs.enable_passwall2           ||  'true' }}" >> $GITHUB_OUTPUT
+          echo "enable_smartdns=${{ github.event.inputs.enable_smartdns             ||  'true' }}" >> $GITHUB_OUTPUT
 
       - name: 检出代码
         uses: actions/checkout@v7
@@ -430,20 +430,21 @@ jobs:
           disabled_pkgs=("luci-app-sms-tool-lite" "luci-app-3ginfo-lite")
 
           # 读取环境变量到关联数组
-          declare -A pkg_enabled
-          pkg_enabled["adguardhome"]="${{ steps.set-env.outputs.enable_adguardhome }}"
-          pkg_enabled["openclash"]="${{ steps.set-env.outputs.enable_openclash }}"
-          pkg_enabled["nikki"]="${{ steps.set-env.outputs.enable_nikki }}"
-          pkg_enabled["upnp"]="${{ steps.set-env.outputs.enable_upnp }}"
-          pkg_enabled["vlmcsd"]="${{ steps.set-env.outputs.enable_vlmcsd }}"
-          pkg_enabled["mosdns"]="${{ steps.set-env.outputs.enable_mosdns }}"
-          pkg_enabled["dockerman"]="${{ steps.set-env.outputs.enable_dockerman }}"
-          pkg_enabled["mwan3"]="${{ steps.set-env.outputs.enable_mwan }}"
-          pkg_enabled["homeproxy"]="${{ steps.set-env.outputs.enable_homeproxy }}"
-          pkg_enabled["adbyby-plus"]="${{ steps.set-env.outputs.enable_adbyby_plus }}"
-          pkg_enabled["ssrp"]="${{ steps.set-env.outputs.enable_ssrp }}"
-          pkg_enabled["passwall2"]="${{ steps.set-env.outputs.enable_passwall2 }}"
-          pkg_enabled["smartdns"]="${{ steps.set-env.outputs.enable_smartdns }}"
+          declare -A pkg_enabled=(
+            [adguardhome]='${{ steps.set-env.outputs.enable_adguardhome }}'
+            [openclash]='${{ steps.set-env.outputs.enable_openclash }}'
+            [nikki]='${{ steps.set-env.outputs.enable_nikki }}'
+            [upnp]='${{ steps.set-env.outputs.enable_upnp }}'
+            [vlmcsd]='${{ steps.set-env.outputs.enable_vlmcsd }}'
+            [mosdns]='${{ steps.set-env.outputs.enable_mosdns }}'
+            [dockerman]='${{ steps.set-env.outputs.enable_dockerman }}'
+            [mwan3]='${{ steps.set-env.outputs.enable_mwan }}'
+            [homeproxy]='${{ steps.set-env.outputs.enable_homeproxy }}'
+            [adbyby-plus]='${{ steps.set-env.outputs.enable_adbyby_plus }}'
+            [ssr-plus]='${{ steps.set-env.outputs.enable_ssrp }}'
+            [passwall2]='${{ steps.set-env.outputs.enable_passwall2 }}'
+            [smartdns]='${{ steps.set-env.outputs.enable_smartdns }}'
+          )
 
           for pkg in "${!pkg_enabled[@]}"; do
             if [ "${pkg_enabled[$pkg]}" = "true" ]; then
@@ -451,61 +452,61 @@ jobs:
               if [ "$pkg" = "nikki" ]; then
                 echo "🔧 配置 Nikki 及其依赖..."
                 # Nikki 核心包
-                echo "CONFIG_PACKAGE_nikki=y" >> .config
-                echo "CONFIG_PACKAGE_luci-app-nikki=y" >> .config
+                echo "CONFIG_PACKAGE_nikki=y"                 >> .config
+                echo "CONFIG_PACKAGE_luci-app-nikki=y"        >> .config
                 echo "CONFIG_PACKAGE_luci-i18n-nikki-zh-cn=y" >> .config
                 # Nikki 依赖
-                echo "CONFIG_PACKAGE_ca-bundle=y" >> .config
-                echo "CONFIG_PACKAGE_curl=y" >> .config
-                echo "CONFIG_PACKAGE_yq=y" >> .config
-                echo "CONFIG_PACKAGE_firewall4=y" >> .config
-                echo "CONFIG_PACKAGE_ip-full=y" >> .config
-                echo "CONFIG_PACKAGE_kmod-inet-diag=y" >> .config
+                echo "CONFIG_PACKAGE_ca-bundle=y"       >> .config
+                echo "CONFIG_PACKAGE_curl=y"            >> .config
+                echo "CONFIG_PACKAGE_yq=y"              >> .config
+                echo "CONFIG_PACKAGE_firewall4=y"       >> .config
+                echo "CONFIG_PACKAGE_ip-full=y"         >> .config
+                echo "CONFIG_PACKAGE_kmod-inet-diag=y"  >> .config
                 echo "CONFIG_PACKAGE_kmod-nft-socket=y" >> .config
                 echo "CONFIG_PACKAGE_kmod-nft-tproxy=y" >> .config
-                echo "CONFIG_PACKAGE_kmod-tun=y" >> .config
+                echo "CONFIG_PACKAGE_kmod-tun=y"        >> .config
               elif [ "$pkg" = "adguardhome" ]; then
-                echo "CONFIG_PACKAGE_luci-app-$pkg=y" >> .config
+                echo "CONFIG_PACKAGE_luci-app-$pkg=y"        >> .config
                 echo "CONFIG_PACKAGE_luci-i18n-$pkg-zh-cn=y" >> .config
               elif [ "$pkg" = "adbyby-plus" ]; then
                 # adbyby-plus 及其依赖 (Plus+ 模式需要 ipset)
-                echo "CONFIG_PACKAGE_luci-app-adbyby-plus=y" >> .config
+                echo "CONFIG_PACKAGE_luci-app-adbyby-plus=y"        >> .config
                 echo "CONFIG_PACKAGE_luci-i18n-adbyby-plus-zh-cn=y" >> .config
-                echo "CONFIG_PACKAGE_ipset=y" >> .config
-              elif [ "$pkg" = "ssrp" ]; then
+                echo "CONFIG_PACKAGE_ipset=y"                       >> .config
+              elif [ "$pkg" = "ssr-plus" ]; then
                 # SSRP 相关配置
-                echo "CONFIG_PACKAGE_luci-app-ssr-plus=y" >> .config
+                echo "CONFIG_PACKAGE_luci-app-ssr-plus=y"                                 >> .config
                 echo "CONFIG_PACKAGE_luci-app-ssr-plus_INCLUDE_Shadowsocks_Rust_Client=y" >> .config
                 echo "CONFIG_PACKAGE_luci-app-ssr-plus_INCLUDE_Shadowsocks_Rust_Server=y" >> .config
-                echo "CONFIG_PACKAGE_luci-app-ssr-plus_INCLUDE_Xray=y" >> .config
-                echo "CONFIG_PACKAGE_luci-app-ssr-plus_INCLUDE_ChinaDNS_NG=y" >> .config
-                echo "CONFIG_PACKAGE_luci-app-ssr-plus_INCLUDE_DNS2SOCKS=y" >> .config
-                echo "CONFIG_PACKAGE_luci-app-ssr-plus_INCLUDE_MosDNS=y" >> .config
-                echo "CONFIG_PACKAGE_luci-app-ssr-plus_INCLUDE_Hysteria=y" >> .config
+                echo "CONFIG_PACKAGE_luci-app-ssr-plus_INCLUDE_Xray=y"                    >> .config
+                echo "CONFIG_PACKAGE_luci-app-ssr-plus_INCLUDE_ChinaDNS_NG=y"             >> .config
+                echo "CONFIG_PACKAGE_luci-app-ssr-plus_INCLUDE_DNS2SOCKS=y"               >> .config
+                echo "CONFIG_PACKAGE_luci-app-ssr-plus_INCLUDE_MosDNS=y"                  >> .config
+                echo "CONFIG_PACKAGE_luci-app-ssr-plus_INCLUDE_Hysteria=y"                >> .config
                 echo "CONFIG_PACKAGE_luci-app-ssr-plus_INCLUDE_Shadowsocks_Simple_Obfs=y" >> .config
-                echo "CONFIG_PACKAGE_luci-i18n-ssr-plus-zh-cn=y" >> .config
+                echo "CONFIG_PACKAGE_luci-i18n-ssr-plus-zh-cn=y"                          >> .config
               elif [ "$pkg" = "passwall2" ]; then
                 # Passwall2 相关配置
-                echo "CONFIG_PACKAGE_luci-app-passwall2=y" >> .config
-                echo "CONFIG_PACKAGE_luci-app-passwall2_Basic_Core_All=y" >> .config
-                echo "CONFIG_PACKAGE_luci-app-passwall2_Nftables_Transparent_Proxy=y" >> .config
-                echo "CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_Haproxy=y" >> .config
-                echo "CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_Hysteria=y" >> .config
-                echo "CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_NaiveProxy=y" >> .config
-                echo "CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_Shadowsocks_Rust_Client=y" >> .config
+                echo "CONFIG_PACKAGE_luci-app-passwall2=y"                                   >> .config
+                echo "CONFIG_PACKAGE_luci-app-passwall2_Basic_Core_All=y"                    >> .config
+                echo "CONFIG_PACKAGE_luci-app-passwall2_Nftables_Transparent_Proxy=y"        >> .config
+                echo "CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_Haproxy=y"                   >> .config
+                echo "CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_Hysteria=y"                  >> .config
+                echo "CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_NaiveProxy=y"                >> .config
+                echo "CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_Shadowsocks_Rust_Client=y"   >> .config
                 echo "CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_ShadowsocksR_Libev_Client=y" >> .config
-                echo "CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_Simple_Obfs=y" >> .config
-                echo "CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_V2ray_Plugin=y" >> .config
-                echo "CONFIG_PACKAGE_luci-i18n-passwall2-zh-cn=y" >> .config
+                echo "CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_Simple_Obfs=y"               >> .config
+                echo "CONFIG_PACKAGE_luci-app-passwall2_INCLUDE_V2ray_Plugin=y"              >> .config
+                echo "CONFIG_PACKAGE_luci-i18n-passwall2-zh-cn=y"                            >> .config
               elif [ "$pkg" = "smartdns" ]; then
-                echo "CONFIG_PACKAGE_smartdns=y" >> .config
-                echo "CONFIG_PACKAGE_luci-app-smartdns=y" >> .config
+                echo "CONFIG_PACKAGE_smartdns=y"                 >> .config
+                echo "CONFIG_PACKAGE_luci-app-smartdns=y"        >> .config
                 echo "CONFIG_PACKAGE_luci-i18n-smartdns-zh-cn=y" >> .config
               elif [ "$pkg" = "vlmcsd" ]; then
-                echo "CONFIG_DEFAULT_luci-app-vlmcsd=y" >> .config
-                echo "CONFIG_PACKAGE_luci-app-vlmcsd=y" >> .config
+                echo "CONFIG_DEFAULT_luci-app-vlmcsd=y"        >> .config
+                echo "CONFIG_PACKAGE_luci-app-vlmcsd=y"        >> .config
                 echo "CONFIG_PACKAGE_luci-i18n-vlmcsd-zh-cn=y" >> .config
-                echo "CONFIG_PACKAGE_vlmcsd=y" >> .config
+                echo "CONFIG_PACKAGE_vlmcsd=y"                 >> .config
               else
                 echo "CONFIG_PACKAGE_luci-app-$pkg=y" >> .config
               fi
@@ -515,10 +516,6 @@ jobs:
                 disabled_pkgs+=("nikki" "luci-app-nikki" "luci-i18n-nikki-zh-cn" "luci-i18n-nikki-en")
               elif [ "$pkg" = "adguardhome" ]; then
                 disabled_pkgs+=("luci-app-$pkg" "luci-i18n-$pkg-zh-cn")
-              elif [ "$pkg" = "ssrp" ]; then
-                disabled_pkgs+=("luci-app-ssr-plus" "luci-i18n-ssr-plus-zh-cn")
-              elif [ "$pkg" = "passwall2" ]; then
-                disabled_pkgs+=("luci-app-$pkg" "luci-i18n-$pkg-zh-cn")
               else
                 disabled_pkgs+=("luci-app-$pkg")
               fi
@@ -527,8 +524,8 @@ jobs:
 
           # 原版 Modem 处理（互斥）
           if [ "${{ steps.set-env.outputs.enable_original_modem }}" = "true" ]; then
-            echo "CONFIG_PACKAGE_luci-app-modem=y" >> .config
-            echo "CONFIG_PACKAGE_modem=y" >> .config
+            echo "CONFIG_PACKAGE_luci-app-modem=y"        >> .config
+            echo "CONFIG_PACKAGE_modem=y"                 >> .config
             echo "CONFIG_PACKAGE_luci-i18n-modem-zh-cn=y" >> .config
           else
             disabled_pkgs+=("luci-app-modem" "modem" "luci-i18n-modem-zh-cn" "luci-i18n-modem-en")
@@ -536,39 +533,39 @@ jobs:
 
           # QModem 特殊处理（互斥）
           if [ "${{ steps.set-env.outputs.enable_qmodem_next }}" = "true" ]; then
-            echo "CONFIG_PACKAGE_luci-app-qmodem-next=y" >> .config
+            echo "CONFIG_PACKAGE_luci-app-qmodem-next=y"        >> .config
             echo "CONFIG_PACKAGE_luci-i18n-qmodem-next-zh-cn=y" >> .config
           elif [ "${{ steps.set-env.outputs.enable_qmodem }}" = "true" ]; then
-            echo "CONFIG_PACKAGE_luci-app-qmodem=y" >> .config
+            echo "CONFIG_PACKAGE_luci-app-qmodem=y"                                     >> .config
             # QModem 核心
-            echo "CONFIG_PACKAGE_luci-compat=y" >> .config
-            echo "CONFIG_PACKAGE_qmodem=y" >> .config
+            echo "CONFIG_PACKAGE_luci-compat=y"                                         >> .config
+            echo "CONFIG_PACKAGE_qmodem=y"                                              >> .config
             # QModem 驱动选择 - 使用 Vendor 驱动
-            echo "CONFIG_PACKAGE_luci-app-qmodem_INCLUDE_vendor-qmi-wwan=y" >> .config
+            echo "CONFIG_PACKAGE_luci-app-qmodem_INCLUDE_vendor-qmi-wwan=y"             >> .config
             echo "# CONFIG_PACKAGE_luci-app-qmodem_INCLUDE_generic-qmi-wwan is not set" >> .config
             # QModem IPv6 支持
-            echo "CONFIG_PACKAGE_luci-app-qmodem_INCLUDE_ndisc6=y" >> .config
-            echo "# CONFIG_PACKAGE_luci-app-qmodem_INCLUDE_rdisc6 is not set" >> .config
-            echo "# CONFIG_PACKAGE_luci-app-qmodem_INCLUDE_no_ndisc_rdisc6 is not set" >> .config
+            echo "CONFIG_PACKAGE_luci-app-qmodem_INCLUDE_ndisc6=y"                      >> .config
+            echo "# CONFIG_PACKAGE_luci-app-qmodem_INCLUDE_rdisc6 is not set"           >> .config
+            echo "# CONFIG_PACKAGE_luci-app-qmodem_INCLUDE_no_ndisc_rdisc6 is not set"  >> .config
             echo "CONFIG_PACKAGE_ndisc6=y" >> .config
             # QModem Quectel CM 选择 - 使用 Tom 定制版
-            echo "CONFIG_PACKAGE_luci-app-qmodem_USE_TOM_CUSTOMIZED_QUECTEL_CM=y" >> .config
+            echo "CONFIG_PACKAGE_luci-app-qmodem_USE_TOM_CUSTOMIZED_QUECTEL_CM=y"       >> .config
             echo "# CONFIG_PACKAGE_luci-app-qmodem_USING_QWRT_QUECTEL_CM_5G is not set" >> .config
-            echo "# CONFIG_PACKAGE_luci-app-qmodem_USING_NORMAL_QUECTEL_CM is not set" >> .config
-            echo "CONFIG_PACKAGE_quectel-CM-5G-M=y" >> .config
+            echo "# CONFIG_PACKAGE_luci-app-qmodem_USING_NORMAL_QUECTEL_CM is not set"  >> .config
+            echo "CONFIG_PACKAGE_quectel-CM-5G-M=y"                                     >> .config
             # QModem 依赖工具
-            echo "CONFIG_PACKAGE_sms-tool_q=y" >> .config
-            echo "CONFIG_PACKAGE_ubus-at-daemon=y" >> .config
-            echo "CONFIG_PACKAGE_tom_modem=y" >> .config
+            echo "CONFIG_PACKAGE_sms-tool_q=y"                                          >> .config
+            echo "CONFIG_PACKAGE_ubus-at-daemon=y"                                      >> .config
+            echo "CONFIG_PACKAGE_tom_modem=y"                                           >> .config
             # QModem Vendor QMI 驱动
-            echo "CONFIG_PACKAGE_kmod-qmi_wwan_q=y" >> .config
-            echo "CONFIG_PACKAGE_kmod-qmi_wwan_f=y" >> .config
-            echo "CONFIG_PACKAGE_kmod-qmi_wwan_s=y" >> .config
+            echo "CONFIG_PACKAGE_kmod-qmi_wwan_q=y"                                     >> .config
+            echo "CONFIG_PACKAGE_kmod-qmi_wwan_f=y"                                     >> .config
+            echo "CONFIG_PACKAGE_kmod-qmi_wwan_s=y"                                     >> .config
             # QModem MWAN (多WAN负载均衡)
-            echo "CONFIG_PACKAGE_mwan3=y" >> .config
-            echo "CONFIG_PACKAGE_luci-app-mwan3=y" >> .config
+            echo "CONFIG_PACKAGE_mwan3=y"                                               >> .config
+            echo "CONFIG_PACKAGE_luci-app-mwan3=y"                                      >> .config
             # HQOS 支持
-            echo "CONFIG_PACKAGE_mtkhqos_util=y" >> .config
+            echo "CONFIG_PACKAGE_mtkhqos_util=y"                                        >> .config
           else
             disabled_pkgs+=("luci-app-qmodem-next" "luci-i18n-qmodem-next-zh-cn" "luci-app-qmodem")
           fi
